@@ -1,0 +1,85 @@
+name: Wavy CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+        working-directory: ./wavy
+
+      - name: Analyze code
+        run: flutter analyze
+        working-directory: ./wavy
+
+      # Skip tests if no test directory exists yet, but keeping for future
+      - name: Run tests
+        run: |
+          if [ -d "test" ]; then
+            flutter test --coverage
+          else
+            echo "No tests found."
+          fi
+        working-directory: ./wavy
+
+      - name: Build Android APK (Debug)
+        run: flutter build apk --debug
+        working-directory: ./wavy
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: wavy-debug-apk
+          path: wavy/build/app/outputs/flutter-apk/app-debug.apk
+
+  deploy:
+    name: Deploy to Firebase App Distribution
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 'stable'
+
+      - name: Install dependencies
+        run: flutter pub get
+        working-directory: ./wavy
+
+      - name: Build Android APK (Release)
+        run: flutter build apk --release
+        working-directory: ./wavy
+        # Note: Requires signing config in build.gradle + secret keys in repo secrets
+
+      - name: Firebase App Distribution
+        uses: w9jds/firebase-action@master
+        with:
+          args: appdistribution:distribute wavy/build/app/outputs/flutter-apk/app-release.apk --app ${{ secrets.FIREBASE_APP_ID }} --groups "testers"
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
