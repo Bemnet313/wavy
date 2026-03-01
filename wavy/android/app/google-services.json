@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "507863071244",
+    "project_id": "wavy-84284",
+    "storage_bucket": "wavy-84284.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:507863071244:android:ae2e1d6800f6de50030c29",
+        "android_client_info": {
+          "package_name": "com.android.application"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDIzE8wFYpA32l_McCW80CiPFxKMaJRdpw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,32 @@
+name: Wavy Build CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: "3.24.x"
+        channel: "stable"
+        
+    - name: Get Dependencies
+      run: flutter pub get
+      
+    - name: Run Analyzer
+      run: flutter analyze
+      
+    - name: Build Web
+      run: flutter build web --release
+      
+    - name: Build Android APK
+      run: flutter build apk --debug
