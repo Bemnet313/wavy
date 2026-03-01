@@ -7,17 +7,80 @@ import '../../providers/providers.dart';
 import '../theme/app_theme.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
-class SellerDashboardScreen extends ConsumerWidget {
+class SellerDashboardScreen extends ConsumerStatefulWidget {
   final String sellerId;
   const SellerDashboardScreen({super.key, required this.sellerId});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SellerDashboardScreen> createState() => _SellerDashboardScreenState();
+}
+
+class _SellerDashboardScreenState extends ConsumerState<SellerDashboardScreen> {
+  bool _isLoading = true;
+  Seller? _seller;
+  List<WavyItem> _listings = [];
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    try {
+      final api = ref.read(apiServiceProvider);
+      final seller = await api.getSeller(widget.sellerId);
+      final listings = await api.getSellerListings(widget.sellerId);
+      
+      if (mounted) {
+        setState(() {
+          _seller = seller;
+          _listings = listings;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(child: CircularProgressIndicator(color: WavyTheme.neonCyan)),
+      );
+    }
+
+    if (_error != null || _seller == null) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline_rounded, color: Colors.white, size: 48),
+              const SizedBox(height: 16),
+              Text(_error ?? 'SELLER NOT FOUND', style: const TextStyle(color: Colors.white)),
+              const SizedBox(height: 24),
+              ElevatedButton(onPressed: _loadData, child: const Text('RETRY')),
+            ],
+          ),
+        ),
+      );
+    }
+
     final locale = ref.watch(localeProvider);
-    final seller = DummyData.getSellerById(sellerId);
-    final listings = DummyData.feedItems
-        .where((item) => item.sellerId == sellerId)
-        .toList();
+    final seller = _seller!;
+    final listings = _listings;
 
     return Scaffold(
       backgroundColor: Colors.black,

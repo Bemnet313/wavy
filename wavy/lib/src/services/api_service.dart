@@ -1,11 +1,19 @@
+import 'dart:io';
 import 'package:dio/dio.dart';
-import '../models/models.dart';
+import 'package:firebase_auth/firebase_auth.dart' as fb;
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class ApiService {
   late final Dio _dio;
+  final fb.FirebaseAuth _auth = fb.FirebaseAuth.instance;
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  final FirebaseFunctions _functions = FirebaseFunctions.instance;
   
-  // Default to localhost for web, 10.0.2.2 for Android emulator
-  static const String _defaultBaseUrl = 'http://localhost:3000';
+  // Load from .env, default to localhost for development
+  static String get _defaultBaseUrl => dotenv.env['API_URL'] ?? 'http://localhost:3000';
   
   ApiService({String? baseUrl}) {
     _dio = Dio(BaseOptions(
@@ -23,94 +31,99 @@ class ApiService {
     ));
   }
 
-  // ─── Auth ───────────────────────────────────────────────
-  Future<Map<String, dynamic>> sendOtp(String phone) async {
-    final response = await _dio.get('/auth', queryParameters: {'phone': phone});
-    final data = response.data as List;
-    if (data.isNotEmpty) {
-      return data.first as Map<String, dynamic>;
-    }
-    // Mock: create new auth entry
-    final newAuth = {
-      'phone': phone,
-      'otp': '123456',
-      'verified': false,
-      'token': 'mock_token_${DateTime.now().millisecondsSinceEpoch}',
-    };
-    final createResponse = await _dio.post('/auth', data: newAuth);
-    return createResponse.data as Map<String, dynamic>;
+  // ─── Auth (Firebase) ────────────────────────────────────
+  
+  Stream<fb.User?> get authStateChanges => _auth.authStateChanges();
+
+  Future<void> verifyPhoneNumber({
+    required String phoneNumber,
+    required Function(String verificationId, int? resendToken) onCodeSent,
+    required Function(fb.FirebaseAuthException e) onVerificationFailed,
+    required Function(fb.PhoneAuthCredential credential) onVerificationCompleted,
+    required Function(String verificationId) onCodeAutoRetrievalTimeout,
+  }) async {
+    await _auth.verifyPhoneNumber(
+      phoneNumber: phoneNumber,
+      verificationCompleted: onVerificationCompleted,
+      verificationFailed: onVerificationFailed,
+      codeSent: onCodeSent,
+      codeAutoRetrievalTimeout: onCodeAutoRetrievalTimeout,
+    );
   }
 
-  Future<Map<String, dynamic>> verifyOtp(String phone, String otp) async {
-    // Mock: accept any 6-digit OTP
-    final response = await _dio.get('/auth', queryParameters: {'phone': phone});
-    final data = response.data as List;
-    if (data.isNotEmpty) {
-      final auth = data.first as Map<String, dynamic>;
-      // Update verified status
-      await _dio.patch('/auth/${auth['id']}', data: {'verified': true});
-      return {...auth, 'verified': true};
-    }
-    throw Exception('Phone not found');
+  Future<fb.UserCredential> signInWithCredential(fb.PhoneAuthCredential credential) async {
+    return await _auth.signInWithCredential(credential);
   }
 
-  // ─── Feed ───────────────────────────────────────────────
-  Future<List<WavyItem>> getFeed({int page = 1, int limit = 20}) async {
-    final response = await _dio.get('/items', queryParameters: {
-      'status': 'active',
-      '_page': page,
-      '_limit': limit,
-    });
-    final data = response.data as List;
-    return data.map((json) => WavyItem.fromJson(json as Map<String, dynamic>)).toList();
+  Future<void> signOut() async {
+    await _auth.signOut();
+  }
+
+  // ─── Feed (Firestore) ───────────────────────────────────
+  Future<List<WavyItem>> getFeed({
+    int limit = 20,
+    DocumentSnapshot? startAfter,
+    String? gender,
+    List<String>? sizes,
+    String? category,
+  }) async {
+    Query query = _db.collection('items')
+        .where('status', isEqualTo: 'active');
+
+    if (gender != null && gender != 'All') {
+      query = query.where('gender', isEqualTo: gender);
+    }
+    
+    if (category != null && category != 'All') {
+      query = query.where('category', isEqualTo: category);
+    }
+
+    if (sizes != null && sizes.isNotEmpty) {
+      query = query.where('size', whereIn: sizes);
+    }
+
+    query = query.orderBy('created_at', descending: true).limit(limit);
+
+    if (startAfter != null) {
+      query = query.startAfterDocument(startAfter);
+    }
+
+    final snapshot = await query.get();
+    return snapshot.docs.map((doc) => WavyItem.fromJson({
+      ...doc.data() as Map<String, dynamic>,
+      'id': doc.id,
+    })).toList();
   }
 
   Future<WavyItem> getItem(String id) async {
-    final response = await _dio.get('/items/$id');
-    return WavyItem.fromJson(response.data as Map<String, dynamic>);
+    final doc = await _db.collection('items').doc(id).get();
+    return WavyItem.fromJson({
+      ...doc.data()!,
+      'id': doc.id,
+    });
   }
 
   // ─── Interest ───────────────────────────────────────────
-  Future<Seller> expressInterest(String itemId, String userId) async {
-    // Log the interest event
-    await logEvent(WavyEvent(
-      userId: userId,
-      itemId: itemId,
-      type: 'interest_event',
-      action: 'interest',
-      timestamp: DateTime.now().toUtc().toIso8601String(),
-      synced: true,
-    ));
+  // ... (will refactor later)
 
-    // Get the item to find seller
-    final item = await getItem(itemId);
-    
-    // Increment interest count
-    await _dio.patch('/items/$itemId', data: {
-      'interest_count': item.interestCount + 1,
-    });
-
-    // Get seller info
-    final sellerResponse = await _dio.get('/sellers/${item.sellerId}');
-    return Seller.fromJson(sellerResponse.data as Map<String, dynamic>);
+  // ─── Media (Storage) ────────────────────────────────────
+  Future<String> uploadImage(File file, String path) async {
+    final ref = FirebaseStorage.instance.ref().child(path);
+    final uploadTask = ref.putFile(file);
+    final snapshot = await uploadTask;
+    return await snapshot.ref.getDownloadURL();
   }
 
-  // ─── Call ───────────────────────────────────────────────
-  Future<void> logCall(String itemId, String userId) async {
-    await logEvent(WavyEvent(
-      userId: userId,
-      itemId: itemId,
-      type: 'call_event',
-      action: 'call',
-      timestamp: DateTime.now().toUtc().toIso8601String(),
-      synced: true,
-    ));
-  }
-
-  // ─── Sell / Publish ─────────────────────────────────────
+  // ─── Sell / Publish (Firestore) ─────────────────────────
   Future<WavyItem> publishItem(Map<String, dynamic> itemData) async {
-    final response = await _dio.post('/items', data: itemData);
-    return WavyItem.fromJson(response.data as Map<String, dynamic>);
+    final docRef = _db.collection('items').doc();
+    final dataWithId = {
+      ...itemData,
+      'id': docRef.id,
+      'created_at': FieldValue.serverTimestamp(),
+    };
+    await docRef.set(dataWithId);
+    return WavyItem.fromJson(dataWithId);
   }
 
   // ─── Mark Sold ──────────────────────────────────────────
@@ -188,18 +201,151 @@ class ApiService {
     }
   }
 
-  // ─── Users ──────────────────────────────────────────────
+  // ─── Users (Firestore) ──────────────────────────────────
   Future<WavyUser?> getUser(String userId) async {
     try {
-      final response = await _dio.get('/users/$userId');
-      return WavyUser.fromJson(response.data as Map<String, dynamic>);
+      final doc = await _db.collection('users').doc(userId).get();
+      if (doc.exists) {
+        return WavyUser.fromJson(doc.data()!);
+      }
+      return null;
     } catch (_) {
       return null;
     }
   }
 
-  Future<WavyUser> updateUser(String userId, Map<String, dynamic> data) async {
-    final response = await _dio.patch('/users/$userId', data: data);
-    return WavyUser.fromJson(response.data as Map<String, dynamic>);
+  Future<void> createUser(WavyUser user) async {
+    await _db.collection('users').doc(user.id).set(user.toJson());
+  }
+
+  // ─── Sellers (Firestore) ────────────────────────────────
+  Future<Seller?> getSeller(String sellerId) async {
+    try {
+      final doc = await _db.collection('sellers').doc(sellerId).get();
+      if (doc.exists) {
+        return Seller.fromJson({
+          ...doc.data()!,
+          'id': doc.id,
+        });
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> updateUser(String userId, Map<String, dynamic> data) async {
+    await _db.collection('users').doc(userId).update(data);
+  }
+
+  // ─── Saved Items (Firestore) ──────────────────────────────
+  Future<void> saveItem(String userId, String itemId) async {
+    await _db.collection('users').doc(userId).collection('saved').doc(itemId).set({
+      'saved_at': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> unsaveItem(String userId, String itemId) async {
+    await _db.collection('users').doc(userId).collection('saved').doc(itemId).delete();
+  }
+
+  Future<List<WavyItem>> getSavedItems(String userId) async {
+    final snapshot = await _db.collection('users').doc(userId).collection('saved').get();
+    final itemIds = snapshot.docs.map((doc) => doc.id).toList();
+    if (itemIds.isEmpty) return [];
+    
+    // Fetch actual items
+    final itemDocs = await _db.collection('items').where(FieldPath.documentId, whereIn: itemIds).get();
+    return itemDocs.docs.map((doc) => WavyItem.fromJson({...doc.data(), 'id': doc.id})).toList();
+  }
+
+  // ─── Chat (Firestore) ─────────────────────────────────────
+  Stream<List<ChatConversation>> getConversations(String userId) {
+    return _db
+        .collection('conversations')
+        .where('participants', arrayContains: userId)
+        .orderBy('updated_at', descending: true)
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => ChatConversation.fromJson({...doc.data(), 'id': doc.id}))
+            .toList());
+  }
+
+  Stream<List<ChatMessage>> getMessages(String conversationId) {
+    return _db
+        .collection('conversations')
+        .doc(conversationId)
+        .collection('messages')
+        .orderBy('timestamp', descending: true)
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => ChatMessage.fromJson({...doc.data(), 'id': doc.id}))
+            .toList());
+  }
+
+  Future<void> sendMessage(String conversationId, ChatMessage message) async {
+    final batch = _db.batch();
+    
+    final msgRef = _db.collection('conversations').doc(conversationId).collection('messages').doc();
+    batch.set(msgRef, message.toJson());
+    
+    final convRef = _db.collection('conversations').doc(conversationId);
+    batch.update(convRef, {
+      'last_message': message.toJson(),
+      'updated_at': FieldValue.serverTimestamp(),
+    });
+    
+    await batch.commit();
+  }
+
+  Future<String> startOrGetConversation(List<String> participants) async {
+    // Basic implementation: find existing one or create new
+    // For simplicity in prototype, we just search participants
+    final query = await _db.collection('conversations')
+        .where('participants', arrayContains: participants.first)
+        .get();
+        
+    for (var doc in query.docs) {
+      final convParts = (doc['participants'] as List).cast<String>();
+      if (convParts.length == participants.length && 
+          participants.every((p) => convParts.contains(p))) {
+        return doc.id;
+      }
+    }
+    
+    final docRef = await _db.collection('conversations').add({
+      'participants': participants,
+      'updated_at': FieldValue.serverTimestamp(),
+      'created_at': FieldValue.serverTimestamp(),
+    });
+    return docRef.id;
+  }
+
+  // ─── Cloud Functions & Notifications ───────────────────
+  Future<void> updateFcmToken(String userId, String token) async {
+    await _db.collection('users').doc(userId).update({'fcm_token': token});
+  }
+
+  Future<String> generateShareLink(String itemId) async {
+    try {
+      final result = await _functions.httpsCallable('generateShareLink').call({
+        'itemId': itemId,
+      });
+      return result.data['shortUrl'] as String;
+    } catch (e) {
+      // Fallback for offline/dev
+      return 'https://wavy.app/item/$itemId';
+    }
+  }
+
+  // ─── Analytics & Auditing ──────────────────────────────
+  Future<void> logAudit(String eventName, Map<String, dynamic> params) async {
+    final user = _auth.currentUser;
+    await _db.collection('events').add({
+      'event_name': eventName,
+      'params': params,
+      'user_id': user?.uid,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
   }
 }

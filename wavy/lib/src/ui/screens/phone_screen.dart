@@ -31,13 +31,25 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
 
   void _continue() {
     final phone = '+251${_phoneController.text.replaceAll(RegExp(r'\D'), '')}';
-    ref.read(authProvider.notifier).setPhone(phone);
-    context.go('/preferences');
+    ref.read(authProvider.notifier).sendOtp(phone);
   }
 
   @override
   Widget build(BuildContext context) {
     final locale = ref.watch(localeProvider);
+    final authState = ref.watch(authProvider);
+
+    // Listen for verification ID to navigate to OTP screen
+    ref.listen(authProvider, (previous, next) {
+      if (next.verificationId != null && previous?.verificationId == null) {
+        context.push('/otp', extra: next.phone);
+      }
+      if (next.error != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(next.error!)),
+        );
+      }
+    });
 
     return Scaffold(
       backgroundColor: Colors.black,

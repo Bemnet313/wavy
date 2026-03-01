@@ -36,18 +36,9 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
 
   Future<void> _verify() async {
     if (!_isComplete) return;
-    setState(() => _isLoading = true);
-    // In demo/prototype mode: any 6-digit code is accepted instantly
-    await Future.delayed(const Duration(milliseconds: 600));
-    // Mark auth as verified
-    ref.read(authProvider.notifier).mockVerify(widget.phone);
-    if (mounted) {
-      setState(() => _isLoading = false);
-      if (GoRouter.of(context).canPop()) {
-        context.pop(true);
-      } else {
-        context.go('/feed');
-      }
+    final success = await ref.read(authProvider.notifier).verifyOtp(_otp);
+    if (success && mounted) {
+      context.go('/preferences');
     }
   }
 

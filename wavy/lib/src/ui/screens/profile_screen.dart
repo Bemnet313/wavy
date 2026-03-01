@@ -12,7 +12,16 @@ class ProfileScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final locale = ref.watch(localeProvider);
-    final user = DummyData.currentUser;
+    final authState = ref.watch(authProvider);
+    final user = authState.user;
+    final savedItems = ref.watch(savedProvider);
+
+    if (user == null) {
+      return const Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(child: CircularProgressIndicator(color: WavyTheme.neonCyan)),
+      );
+    }
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -99,12 +108,12 @@ class ProfileScreen extends ConsumerWidget {
               Row(
                 children: [
                   _QuickStat(
-                    value: '3',
+                    value: '${savedItems.length}',
                     label: locale == 'am' ? 'የተቀመጡ' : 'SAVED',
                     icon: Icons.favorite_rounded,
                   ),
                   _QuickStat(
-                    value: '5',
+                    value: '0', // In future: fetch listings count
                     label: locale == 'am' ? 'ዝርዝሮች' : 'LISTS',
                     icon: Icons.grid_view_rounded,
                   ),
@@ -122,7 +131,7 @@ class ProfileScreen extends ConsumerWidget {
                 icon: Icons.store_rounded,
                 label: locale == 'am' ? 'የሻጭ ዳሽቦርድ' : 'SELLER DASHBOARD',
                 subtitle: locale == 'am' ? 'ዝርዝሮችን ያስተዳድሩ' : 'MANAGE YOUR DROPS',
-                onTap: () => context.push('/seller/seller_01'),
+                onTap: () => context.push('/seller/${user.id}'),
               ),
               _ProfileMenuItem(
                 icon: Icons.language_rounded,

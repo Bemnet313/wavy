@@ -1,129 +1,119 @@
-import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-import '../../models/models.dart';
-import '../../data/dummy_data.dart';
-import '../theme/app_theme.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../providers/providers.dart';
 
-class ChatScreen extends StatefulWidget {
+class ChatScreen extends ConsumerStatefulWidget {
   final String chatId;
   final String? attachItemId;
   const ChatScreen({super.key, required this.chatId, this.attachItemId});
 
   @override
-  State<ChatScreen> createState() => _ChatScreenState();
+  ConsumerState<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends ConsumerState<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
-  final List<Map<String, dynamic>> _messages = [];
-  bool _isFirstMessage = true;
   WavyItem? _attachedItem;
+  bool _isLoadingItem = false;
 
   @override
   void initState() {
     super.initState();
     if (widget.attachItemId != null) {
-      _attachedItem = DummyData.feedItems.firstWhere(
-        (i) => i.id == widget.attachItemId,
-        orElse: () => DummyData.feedItems.first,
-      );
+      _loadAttachedItem();
     }
-    // Simulate some history
-    _messages.add({
-      'text': 'Hey! Is this still available?',
-      'isMe': true,
-      'time': '12:00 PM',
-    });
-    _messages.add({
-      'text': 'Yes, it is!',
-      'isMe': false,
-      'time': '12:05 PM',
-    });
   }
 
-  void _logEvent(String eventName, Map<String, dynamic> params) {
-    debugPrint('WavyLogger: $eventName $params');
-  }
-
-  void _sendMessage() {
-    if (_messageController.text.isEmpty) return;
-
-    setState(() {
-      if (_attachedItem != null) {
-        _messages.add({
-          'isItem': true,
-          'item': _attachedItem,
-          'isMe': true,
-          'time': 'NOW',
+  Future<void> _loadAttachedItem() async {
+    setState(() => _isLoadingItem = true);
+    try {
+      final item = await ref.read(apiServiceProvider).getItem(widget.attachItemId!);
+      if (mounted) {
+        setState(() {
+          _attachedItem = item;
+          _isLoadingItem = false;
         });
-        _logEvent('chat_message_sent', {'conv_id': widget.chatId, 'item_id': _attachedItem!.id});
-        _attachedItem = null;
-        _isFirstMessage = false;
       }
-      _messages.add({
-        'text': _messageController.text,
-        'isMe': true,
-        'time': 'NOW',
-      });
-      if (_isFirstMessage) {
-        _logEvent('chat_message_sent', {'conv_id': widget.chatId, 'item_id': null});
-        _isFirstMessage = false;
+    } catch (_) {
+      setState(() => _isLoadingItem = false);
+    }
+  }
+
+  void _sendMessage() async {
+    final text = _messageController.text.trim();
+    if (text.isEmpty && _attachedItem == null) return;
+
+    final currentUserId = ref.read(authProvider).fbUser?.uid;
+    if (currentUserId == null) return;
+
+    final api = ref.read(apiServiceProvider);
+    
+    // Create message object
+    final message = ChatMessage(
+      id: '', // Firestore generates ID
+      senderId: currentUserId,
+      text: text,
+      timestamp: DateTime.now().toIso8601String(),
+      attachedItemId: _attachedItem?.id,
+    );
+
+    _messageController.clear();
+    setState(() => _attachedItem = null);
+
+    try {
+      await api.sendMessage(widget.chatId, message);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to send: $e')),
+        );
       }
-      _messageController.clear();
-    });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final messagesAsync = ref.watch(messagesProvider(widget.chatId));
+    final currentUserId = ref.read(authProvider).fbUser?.uid;
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
         centerTitle: false,
-        title: Row(
-          children: [
-            const CircleAvatar(
-              radius: 16,
-              backgroundImage: NetworkImage('https://i.pravatar.cc/150?u=sara'),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              'SARA HAILU',
-              style: GoogleFonts.spaceGrotesk(
-                fontSize: 14,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 1,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.phone_rounded, color: Colors.white, size: 20),
-            onPressed: () {},
+        title: Text(
+          'CHAT',
+          style: GoogleFonts.spaceGrotesk(
+            fontSize: 14,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 1,
           ),
-          const SizedBox(width: 8),
-        ],
+        ),
       ),
       body: Column(
         children: [
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.all(20),
-              reverse: true,
-              itemCount: _messages.length,
-              itemBuilder: (context, index) {
-                final msg = _messages[_messages.length - 1 - index];
-                
-                if (msg['isItem'] == true) {
-                  return _ItemContextCard(item: msg['item']);
-                }
-
-                return _ChatBubble(
-                  text: msg['text'],
-                  isMe: msg['isMe'],
-                  time: msg['time'],
-                );
-              },
+            child: messagesAsync.when(
+              data: (messages) => ListView.builder(
+                padding: const EdgeInsets.all(20),
+                reverse: true,
+                itemCount: messages.length,
+                itemBuilder: (context, index) {
+                  final msg = messages[index];
+                  return Column(
+                    crossAxisAlignment: msg.senderId == currentUserId ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                    children: [
+                      if (msg.attachedItemId != null) 
+                        _ItemContextCardLoader(itemId: msg.attachedItemId!),
+                      _ChatBubble(
+                        text: msg.text,
+                        isMe: msg.senderId == currentUserId,
+                        time: msg.timestamp.split('T').last.substring(0, 5),
+                      ),
+                    ],
+                  );
+                },
+              ),
+              loading: () => const Center(child: CircularProgressIndicator(color: WavyTheme.neonCyan)),
+              error: (err, _) => Center(child: Text('Error: $err', style: const TextStyle(color: Colors.white))),
             ),
           ),
           _buildAttachmentPreview(),
@@ -137,16 +127,17 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_attachedItem == null) return const SizedBox.shrink();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: Colors.white.withOpacity(0.05),
+      color: Colors.white.withValues(alpha: 0.05),
       child: Row(
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
-            child: Image.asset(
-              _attachedItem!.images.first,
+            child: CachedNetworkImage(
+              imageUrl: _attachedItem!.images.isNotEmpty ? _attachedItem!.images.first : '',
               width: 40,
               height: 40,
               fit: BoxFit.cover,
+              errorWidget: (_, __, ___) => Container(color: Colors.white10),
             ),
           ),
           const SizedBox(width: 12),
@@ -230,6 +221,7 @@ class _ChatBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (text.isEmpty) return const SizedBox.shrink();
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -250,19 +242,6 @@ class _ChatBubble extends StatelessWidget {
                 : Colors.white.withValues(alpha: 0.1),
             width: 1.0,
           ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.5),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-            if (!isMe)
-              BoxShadow(
-                color: Colors.white.withValues(alpha: 0.02),
-                blurRadius: 15,
-                spreadRadius: -2,
-              )
-          ],
         ),
         child: Text(
           text,
@@ -277,67 +256,64 @@ class _ChatBubble extends StatelessWidget {
   }
 }
 
-class _ItemContextCard extends StatelessWidget {
-  final WavyItem item;
-  const _ItemContextCard({required this.item});
+class _ItemContextCardLoader extends ConsumerWidget {
+  final String itemId;
+  const _ItemContextCardLoader({required this.itemId});
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: WavyTheme.surfaceDark,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: WavyTheme.accentBorder),
-      ),
-      child: Row(
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: Image.asset(
-              'assets/images/dummy/item_2.jpg', // Placeholder logic for now
-              width: 50,
-              height: 50,
-              fit: BoxFit.cover,
-            ),
+  Widget build(BuildContext context, WidgetRef ref) {
+    return FutureBuilder<WavyItem>(
+      future: ref.read(apiServiceProvider).getItem(itemId),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const SizedBox.shrink();
+        final item = snapshot.data!;
+        return Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: WavyTheme.surfaceDark,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: WavyTheme.accentBorder),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.title.toUpperCase(),
-                  style: GoogleFonts.spaceGrotesk(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                  ),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: CachedNetworkImage(
+                  imageUrl: item.images.isNotEmpty ? item.images.first : '',
+                  width: 50,
+                  height: 50,
+                  fit: BoxFit.cover,
+                  errorWidget: (_, __, ___) => Container(color: Colors.white10),
                 ),
-                Text(
-                  '${item.price} ETB',
-                  style: GoogleFonts.spaceGrotesk(
-                    color: WavyTheme.textDarkSecondary,
-                    fontSize: 10,
-                  ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.title.toUpperCase(),
+                      style: GoogleFonts.spaceGrotesk(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    Text(
+                      '${item.price} ETB',
+                      style: GoogleFonts.spaceGrotesk(
+                        color: WavyTheme.textDarkSecondary,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.white10,
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Text(
-              'ID: ${item.id}',
-              style: const TextStyle(color: Colors.white38, fontSize: 8),
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

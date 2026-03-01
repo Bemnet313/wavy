@@ -15,98 +15,150 @@ final hiveServiceProvider = Provider<HiveService>((ref) {
   return HiveService();
 });
 
-// ─── Auth Provider ─────────────────────────────────────────
+import 'package:firebase_auth/firebase_auth.dart' as fb;
+
 class AuthState {
   final String? phone;
-  final String? token;
+  final String? verificationId;
   final bool isVerified;
   final bool isLoading;
   final String? error;
   final WavyUser? user;
+  final fb.User? fbUser;
 
   const AuthState({
     this.phone,
-    this.token,
+    this.verificationId,
     this.isVerified = false,
     this.isLoading = false,
     this.error,
     this.user,
+    this.fbUser,
   });
 
   AuthState copyWith({
     String? phone,
-    String? token,
+    String? verificationId,
     bool? isVerified,
     bool? isLoading,
     String? error,
     WavyUser? user,
+    fb.User? fbUser,
   }) {
     return AuthState(
       phone: phone ?? this.phone,
-      token: token ?? this.token,
+      verificationId: verificationId ?? this.verificationId,
       isVerified: isVerified ?? this.isVerified,
       isLoading: isLoading ?? this.isLoading,
       error: error,
       user: user ?? this.user,
+      fbUser: fbUser ?? this.fbUser,
     );
   }
 }
 
+import 'package:firebase_messaging/firebase_messaging.dart';
+
 class AuthNotifier extends StateNotifier<AuthState> {
   final ApiService _api;
   final HiveService _hive;
+  final Ref _ref;
+  StreamSubscription? _authSubscription;
 
-  AuthNotifier(this._api, this._hive) : super(const AuthState()) {
-    _loadPersistedAuth();
+  AuthNotifier(this._api, this._hive, this._ref) : super(const AuthState()) {
+    _initAuthListener();
   }
 
-  Future<void> _loadPersistedAuth() async {
-    final token = _hive.getAuthToken();
-    final userId = _hive.getUserId();
-    if (token != null && userId != null) {
-      state = state.copyWith(token: token, isVerified: true);
-      final user = await _api.getUser(userId);
-      if (user != null) {
-        state = state.copyWith(user: user);
+  @override
+  void dispose() {
+    _authSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _initAuthListener() {
+    _authSubscription = _api.authStateChanges.listen((fbUser) async {
+      if (fbUser != null) {
+        state = state.copyWith(
+          fbUser: fbUser,
+          isVerified: true,
+          isLoading: true,
+        );
+        
+        // Load user from Firestore
+        final user = await _api.getUser(fbUser.uid);
+        state = state.copyWith(
+          user: user,
+          isLoading: false,
+        );
+        
+        // Persist local UID just in case
+        _hive.saveUserId(fbUser.uid);
+
+        // Sync FCM token
+        _syncFcmToken(fbUser.uid);
+
+        // Load saved items
+        _ref.read(savedProvider.notifier).loadSavedItems();
+      } else {
+        state = const AuthState();
       }
+    });
+  }
+
+  Future<void> _syncFcmToken(String userId) async {
+    try {
+      final messaging = FirebaseMessaging.instance;
+      // Request permission (standard practice)
+      await messaging.requestPermission();
+      final token = await messaging.getToken();
+      if (token != null) {
+        await _api.updateFcmToken(userId, token);
+      }
+    } catch (_) {
+      // Silent fail in dev
     }
   }
 
   Future<void> sendOtp(String phone) async {
     state = state.copyWith(isLoading: true, phone: phone, error: null);
     try {
-      await _api.sendOtp(phone);
-      state = state.copyWith(isLoading: false);
+      await _api.verifyPhoneNumber(
+        phoneNumber: phone,
+        onCodeSent: (verId, resendToken) {
+          state = state.copyWith(isLoading: false, verificationId: verId);
+        },
+        onVerificationFailed: (e) {
+          state = state.copyWith(isLoading: false, error: e.message);
+        },
+        onVerificationCompleted: (credential) async {
+          await _api.signInWithCredential(credential);
+        },
+        onCodeAutoRetrievalTimeout: (verId) {
+          state = state.copyWith(verificationId: verId);
+        },
+      );
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
     }
   }
 
   Future<bool> verifyOtp(String otp) async {
+    if (state.verificationId == null) {
+      state = state.copyWith(error: 'Verification session expired');
+      return false;
+    }
+
     state = state.copyWith(isLoading: true, error: null);
     try {
-      final result = await _api.verifyOtp(state.phone!, otp);
-      final token = result['token'] as String?;
-      state = state.copyWith(
-        isLoading: false,
-        isVerified: true,
-        token: token,
+      final credential = fb.PhoneAuthProvider.credential(
+        verificationId: state.verificationId!,
+        smsCode: otp,
       );
-      // Persist
-      if (token != null) _hive.saveAuthToken(token);
-      
-      // Try to find or create user
-      final userId = result['id'] as String?;
-      if (userId != null) {
-        _hive.saveUserId(userId);
-        final user = await _api.getUser(userId);
-        if (user != null) {
-          state = state.copyWith(user: user);
-        }
-      }
+      await _api.signInWithCredential(credential);
+      // initAuthListener handles the rest
       return true;
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: e.toString());
+      state = state.copyWith(isLoading: false, error: 'Invalid verification code');
       return false;
     }
   }
@@ -119,28 +171,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(phone: phone);
   }
 
-  /// Demo-mode: accepts any code, marks user as verified immediately
-  void mockVerify(String phone) {
-    const mockToken = 'demo_token_wavy_2024';
-    const mockUserId = 'usr_001';
-    _hive.saveAuthToken(mockToken);
-    _hive.saveUserId(mockUserId);
-    state = state.copyWith(
-      phone: phone,
-      token: mockToken,
-      isVerified: true,
-      error: null,
-      isLoading: false,
-      user: const WavyUser(
-        id: mockUserId,
-        name: 'Wavy User',
-        phone: '',
-        preferences: UserPreferences(),
-      ),
-    );
-  }
-
-  void logout() {
+  void logout() async {
+    await _api.signOut();
     _hive.clearAuth();
     state = const AuthState();
   }
@@ -150,6 +182,7 @@ final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
   return AuthNotifier(
     ref.watch(apiServiceProvider),
     ref.watch(hiveServiceProvider),
+    ref,
   );
 });
 
@@ -236,26 +269,38 @@ final feedProvider = StateNotifierProvider<FeedNotifier, FeedState>((ref) {
 // ─── Saved Items Provider ──────────────────────────────────
 class SavedNotifier extends StateNotifier<List<WavyItem>> {
   final ApiService _api;
+  final Ref _ref;
 
-  SavedNotifier(this._api) : super([]);
+  SavedNotifier(this._api, this._ref) : super([]);
 
-  void addItem(WavyItem item) {
+  Future<void> addItem(WavyItem item) async {
+    final userId = _ref.read(authProvider).fbUser?.uid;
+    if (userId == null) return;
+
     if (!state.any((i) => i.id == item.id)) {
       state = [...state, item];
+      await _api.saveItem(userId, item.id);
     }
   }
 
-  void removeItem(String itemId) {
+  Future<void> removeItem(String itemId) async {
+    final userId = _ref.read(authProvider).fbUser?.uid;
+    if (userId == null) return;
+
     state = state.where((i) => i.id != itemId).toList();
+    await _api.unsaveItem(userId, itemId);
   }
 
   bool isSaved(String itemId) {
     return state.any((i) => i.id == itemId);
   }
 
-  Future<void> loadSavedItems(List<String> itemIds) async {
+  Future<void> loadSavedItems() async {
+    final userId = _ref.read(authProvider).fbUser?.uid;
+    if (userId == null) return;
+
     try {
-      final items = await _api.getSavedItems(itemIds);
+      final items = await _api.getSavedItems(userId);
       state = items;
     } catch (_) {}
   }
@@ -263,7 +308,7 @@ class SavedNotifier extends StateNotifier<List<WavyItem>> {
 
 final savedProvider =
     StateNotifierProvider<SavedNotifier, List<WavyItem>>((ref) {
-  return SavedNotifier(ref.watch(apiServiceProvider));
+  return SavedNotifier(ref.watch(apiServiceProvider), ref);
 });
 
 // ─── Seller Provider ───────────────────────────────────────
@@ -381,6 +426,17 @@ class PreferencesNotifier extends StateNotifier<UserPreferences> {
         UserPreferences(gender: state.gender, sizes: state.sizes, styles: styles, age: state.age, hasSeenTutorial: state.hasSeenTutorial);
   }
 }
+
+// ─── Chat Providers ───────────────────────────────────────
+final conversationsProvider = StreamProvider<List<ChatConversation>>((ref) {
+  final userId = ref.watch(authProvider).fbUser?.uid;
+  if (userId == null) return Stream.value([]);
+  return ref.watch(apiServiceProvider).getConversations(userId);
+});
+
+final messagesProvider = StreamProvider.family<List<ChatMessage>, String>((ref, conversationId) {
+  return ref.watch(apiServiceProvider).getMessages(conversationId);
+});
 
 // ─── Locale Provider ───────────────────────────────────────
 final localeProvider = StateNotifierProvider<LocaleNotifier, String>((ref) {

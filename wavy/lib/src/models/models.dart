@@ -1,4 +1,4 @@
-// Data models for the Wavy app
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class WavyItem {
   final String id;
@@ -36,6 +36,14 @@ class WavyItem {
   });
 
   factory WavyItem.fromJson(Map<String, dynamic> json) {
+    String createdAtStr = '';
+    final createdAt = json['created_at'];
+    if (createdAt is Timestamp) {
+      createdAtStr = createdAt.toDate().toIso8601String();
+    } else if (createdAt is String) {
+      createdAtStr = createdAt;
+    }
+
     return WavyItem(
       id: json['id'] as String,
       title: json['title'] as String,
@@ -51,7 +59,7 @@ class WavyItem {
       swipeCount: json['swipe_count'] as int? ?? 0,
       interestCount: json['interest_count'] as int? ?? 0,
       category: json['category'] as String,
-      createdAt: json['created_at'] as String,
+      createdAt: createdAtStr,
     );
   }
 
@@ -167,6 +175,7 @@ class WavyUser {
   final UserPreferences preferences;
   final String language;
   final List<String> savedItems;
+  final String? fcmToken;
 
   const WavyUser({
     required this.id,
@@ -175,6 +184,7 @@ class WavyUser {
     required this.preferences,
     this.language = 'en',
     this.savedItems = const [],
+    this.fcmToken,
   });
 
   factory WavyUser.fromJson(Map<String, dynamic> json) {
@@ -187,6 +197,7 @@ class WavyUser {
       language: json['language'] as String? ?? 'en',
       savedItems:
           (json['saved_items'] as List<dynamic>?)?.cast<String>() ?? [],
+      fcmToken: json['fcm_token'] as String?,
     );
   }
 
@@ -197,6 +208,7 @@ class WavyUser {
         'preferences': preferences.toJson(),
         'language': language,
         'saved_items': savedItems,
+        'fcm_token': fcmToken,
       };
 
   WavyUser copyWith({
@@ -206,6 +218,7 @@ class WavyUser {
     UserPreferences? preferences,
     String? language,
     List<String>? savedItems,
+    String? fcmToken,
   }) {
     return WavyUser(
       id: id ?? this.id,
@@ -214,6 +227,7 @@ class WavyUser {
       preferences: preferences ?? this.preferences,
       language: language ?? this.language,
       savedItems: savedItems ?? this.savedItems,
+      fcmToken: fcmToken ?? this.fcmToken,
     );
   }
 }
@@ -292,4 +306,81 @@ class WavyEvent {
         'timestamp': timestamp,
         'synced': synced,
       };
+}
+
+class ChatMessage {
+  final String id;
+  final String senderId;
+  final String text;
+  final String timestamp;
+  final String? attachedItemId;
+
+  const ChatMessage({
+    required this.id,
+    required this.senderId,
+    required this.text,
+    required this.timestamp,
+    this.attachedItemId,
+  });
+
+  factory ChatMessage.fromJson(Map<String, dynamic> json) {
+    String tsStr = '';
+    final ts = json['timestamp'];
+    if (ts is Timestamp) {
+      tsStr = ts.toDate().toIso8601String();
+    } else if (ts is String) {
+      tsStr = ts;
+    }
+
+    return ChatMessage(
+      id: json['id'] as String? ?? '',
+      senderId: json['sender_id'] as String,
+      text: json['text'] as String,
+      timestamp: tsStr,
+      attachedItemId: json['attached_item_id'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'sender_id': senderId,
+        'text': text,
+        'timestamp': FieldValue.serverTimestamp(),
+        if (attachedItemId != null) 'attached_item_id': attachedItemId,
+      };
+}
+
+class ChatConversation {
+  final String id;
+  final List<String> participants;
+  final ChatMessage? lastMessage;
+  final String updatedAt;
+  final Map<String, dynamic>? metadata;
+
+  const ChatConversation({
+    required this.id,
+    required this.participants,
+    this.lastMessage,
+    required this.updatedAt,
+    this.metadata,
+  });
+
+  factory ChatConversation.fromJson(Map<String, dynamic> json) {
+    String upStr = '';
+    final up = json['updated_at'];
+    if (up is Timestamp) {
+      upStr = up.toDate().toIso8601String();
+    } else if (up is String) {
+      upStr = up;
+    }
+
+    return ChatConversation(
+      id: json['id'] as String,
+      participants: (json['participants'] as List<dynamic>).cast<String>(),
+      lastMessage: json['last_message'] != null
+          ? ChatMessage.fromJson(json['last_message'] as Map<String, dynamic>)
+          : null,
+      updatedAt: upStr,
+      metadata: json['metadata'] as Map<String, dynamic>?,
+    );
+  }
 }

@@ -18,29 +18,59 @@ class FeedScreen extends ConsumerStatefulWidget {
 
 class _FeedScreenState extends ConsumerState<FeedScreen> {
   final CardSwiperController _swiperController = CardSwiperController();
-  late List<WavyItem> _items;
+  List<WavyItem> _items = [];
+  bool _isLoading = true;
+  String? _error;
   bool _canUndo = false;
-
 
   @override
   void initState() {
     super.initState();
-    _items = List.from(DummyData.feedItems);
-    
-    final hasSeenTutorial = ref.read(preferencesProvider).hasSeenTutorial;
-    if (!hasSeenTutorial) {
-      _items.insert(0, const WavyItem(
-        id: 'tutorial',
-        title: 'Tutorial',
-        price: 0,
-        size: 'INFO',
-        condition: 'TUTORIAL',
-        images: [],
-        sellerId: 'system',
-        tagId: 'tut',
-        category: 'System',
-        createdAt: '2024-01-01T00:00:00Z',
-      ));
+    _loadFeed();
+  }
+
+  Future<void> _loadFeed({String? gender, String? category, List<String>? sizes}) async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final items = await ref.read(apiServiceProvider).getFeed(
+        gender: gender,
+        category: category,
+        sizes: sizes,
+      );
+      
+      final hasSeenTutorial = ref.read(preferencesProvider).hasSeenTutorial;
+      if (!hasSeenTutorial) {
+        items.insert(0, const WavyItem(
+          id: 'tutorial',
+          title: 'Tutorial',
+          price: 0,
+          size: 'INFO',
+          condition: 'TUTORIAL',
+          images: [],
+          sellerId: 'system',
+          tagId: 'tut',
+          category: 'System',
+          createdAt: '',
+        ));
+      }
+
+      if (mounted) {
+        setState(() {
+          _items = items;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -95,55 +125,66 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
 
             // Swipe deck
             Expanded(
-              child: _items.isEmpty
+              child: _isLoading 
+                ? const Center(child: CircularProgressIndicator(color: WavyTheme.neonCyan))
+                : _error != null
                   ? Center(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(
-                            Icons.done_all_rounded,
-                            size: 64,
-                            color: Colors.white,
-                          ),
+                          const Icon(Icons.error_outline_rounded, color: Colors.red, size: 48),
                           const SizedBox(height: 16),
-                          Text(
-                            locale == 'am'
-                                ? 'ሁሉንም አይተዋል!'
-                                : "ALL CAUGHT UP",
-                            style: GoogleFonts.spaceGrotesk(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w900,
-                              color: Colors.white,
-                              letterSpacing: 1.5,
-                            ).copyWith(fontFamilyFallback: const ['Noto Sans Ethiopic']),
-                          ),
+                          Text(_error!, style: const TextStyle(color: Colors.white)),
                           const SizedBox(height: 24),
-                          TextButton(
-                            onPressed: () {
-                              setState(() {
-                                _items = List.from(DummyData.feedItems);
-                              });
-                            },
-                            style: TextButton.styleFrom(
-                              foregroundColor: WavyTheme.neonMagenta,
-                              side: const BorderSide(color: WavyTheme.neonMagenta),
-                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                            ),
-                            child: const Text('RELOAD FEED'),
-                          ),
+                          ElevatedButton(onPressed: _loadFeed, child: const Text('RETRY')),
                         ],
                       ),
                     )
-                  : Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: CardSwiper(
-                        controller: _swiperController,
-                        cardsCount: _items.length,
-                        numberOfCardsDisplayed: _items.length.clamp(1, 3),
-                        backCardOffset: const Offset(0, -38),
-                        scale: 0.92,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 24),
+                  : _items.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.done_all_rounded,
+                                size: 64,
+                                color: Colors.white,
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                locale == 'am'
+                                    ? 'ሁሉንም አይተዋል!'
+                                    : "ALL CAUGHT UP",
+                                style: GoogleFonts.spaceGrotesk(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w900,
+                                  color: Colors.white,
+                                  letterSpacing: 1.5,
+                                ).copyWith(fontFamilyFallback: const ['Noto Sans Ethiopic']),
+                              ),
+                              const SizedBox(height: 24),
+                              TextButton(
+                                onPressed: _loadFeed,
+                                style: TextButton.styleFrom(
+                                  foregroundColor: WavyTheme.neonMagenta,
+                                  side: const BorderSide(color: WavyTheme.neonMagenta),
+                                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                ),
+                                child: const Text('RELOAD FEED'),
+                              ),
+                            ],
+                          ),
+                        )
+                      : Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: CardSwiper(
+                            controller: _swiperController,
+                            cardsCount: _items.length,
+                            numberOfCardsDisplayed: _items.length.clamp(1, 3),
+                            backCardOffset: const Offset(0, -38),
+                            scale: 0.92,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 24),
                         onSwipe: (prevIndex, currentIndex, direction) {
                           final item = _items[prevIndex];
                           if (item.id == 'tutorial') {
@@ -507,13 +548,11 @@ class _FilterModalState extends ConsumerState<_FilterModal> {
                     // Close modal
                     Navigator.pop(context);
                     
-                    // Trigger refresh in feed (simulated)
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text('REFRESHING FEED...'),
-                        backgroundColor: WavyTheme.neonCyan.withValues(alpha: 0.8),
-                        duration: const Duration(seconds: 1),
-                      ),
+                    // Trigger refresh in feed
+                    (context as Element).findAncestorStateOfType<_FeedScreenState>()?._loadFeed(
+                      gender: _selectedGender,
+                      category: _selectedCategory,
+                      sizes: _selectedSizes.toList(),
                     );
                   },
                   style: ElevatedButton.styleFrom(

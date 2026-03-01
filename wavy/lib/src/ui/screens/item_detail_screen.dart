@@ -21,12 +21,62 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
   int _currentImageIndex = 0;
   final PageController _pageController = PageController();
 
-  WavyItem get _item => DummyData.feedItems.firstWhere(
-        (i) => i.id == widget.itemId,
-        orElse: () => DummyData.feedItems.first,
-      );
+  WavyItem? _item;
+  Seller? _seller;
+  bool _isLoading = true;
+  String? _error;
 
-  Seller get _seller => DummyData.getSellerById(_item.sellerId);
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    try {
+      final api = ref.read(apiServiceProvider);
+      final item = await api.getItem(widget.itemId);
+      final sellerResponse = await api.getSeller(item.sellerId);
+
+      if (mounted) {
+        setState(() {
+          _item = item;
+          _seller = sellerResponse;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _startChat() async {
+    final currentUserId = ref.read(authProvider).fbUser?.uid;
+    if (currentUserId == null || _item == null) return;
+
+    try {
+      final conversationId = await ref.read(apiServiceProvider).startOrGetConversation([
+        currentUserId,
+        _item!.sellerId,
+      ]);
+
+      if (mounted) {
+        context.push('/chat/$conversationId?attachItemId=${_item!.id}');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not start chat: $e')),
+        );
+      }
+    }
+  }
 
   void _logEvent(String eventName, Map<String, dynamic> params) {
     debugPrint('WavyLogger: $eventName $params');
@@ -61,8 +111,34 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final locale = ref.watch(localeProvider);
-    final item = _item;
-    final seller = _seller;
+
+    if (_isLoading) {
+      return const Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(child: CircularProgressIndicator(color: WavyTheme.neonCyan)),
+      );
+    }
+
+    if (_error != null || _item == null || _seller == null) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline_rounded, color: Colors.white, size: 48),
+              const SizedBox(height: 16),
+              Text(_error ?? 'ITEM NOT FOUND', style: const TextStyle(color: Colors.white)),
+              const SizedBox(height: 24),
+              ElevatedButton(onPressed: _loadData, child: const Text('RETRY')),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final item = _item!;
+    final seller = _seller!;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -428,7 +504,7 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                             child: ElevatedButton(
                               onPressed: () {
                                 _logEvent('seller_message_tapped', {'seller_id': seller.id, 'item_id': item.id});
-                                context.push('/chat/${seller.id}?attachItemId=${item.id}');
+                                _startChat();
                               },
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.white,
