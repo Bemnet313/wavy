@@ -25,7 +25,6 @@ dependencies:
   riverpod_annotation: ^2.6.1
 
   # Networking
-  dio: ^5.7.0
 
   # Local storage
   hive: ^2.2.3
@@ -43,7 +42,6 @@ dependencies:
   flutter_card_swiper: ^7.0.1
 
   # Utilities
-  flutter_dotenv: ^5.1.0
   url_launcher: ^6.3.1
   intl: any
   uuid: ^4.5.1

@@ -1,5 +1,11 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../models/models.dart';
 import '../../providers/providers.dart';
+import '../theme/app_theme.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final String chatId;
@@ -12,14 +18,50 @@ class ChatScreen extends ConsumerStatefulWidget {
 
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
   WavyItem? _attachedItem;
   bool _isLoadingItem = false;
+  bool _isLoadingMore = false;
+  final List<ChatMessage> _loadedMessages = [];
+  DocumentSnapshot? _lastDoc;
 
   @override
   void initState() {
     super.initState();
     if (widget.attachItemId != null) {
       _loadAttachedItem();
+    }
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    _messageController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 50) {
+      if (!_isLoadingMore && _lastDoc != null) {
+        _loadMoreMessages();
+      }
+    }
+  }
+
+  Future<void> _loadMoreMessages() async {
+    setState(() => _isLoadingMore = true);
+    try {
+      final additional = await ref.read(apiServiceProvider).loadMoreMessages(widget.chatId, _lastDoc!);
+      if (additional.isNotEmpty && mounted) {
+        setState(() {
+          _loadedMessages.addAll(additional);
+          _lastDoc = additional.last.docRef;
+        });
+      }
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _isLoadingMore = false);
     }
   }
 
@@ -92,26 +134,50 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         children: [
           Expanded(
             child: messagesAsync.when(
-              data: (messages) => ListView.builder(
-                padding: const EdgeInsets.all(20),
-                reverse: true,
-                itemCount: messages.length,
-                itemBuilder: (context, index) {
-                  final msg = messages[index];
-                  return Column(
-                    crossAxisAlignment: msg.senderId == currentUserId ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                    children: [
-                      if (msg.attachedItemId != null) 
-                        _ItemContextCardLoader(itemId: msg.attachedItemId!),
-                      _ChatBubble(
-                        text: msg.text,
-                        isMe: msg.senderId == currentUserId,
-                        time: msg.timestamp.split('T').last.substring(0, 5),
-                      ),
-                    ],
-                  );
-                },
-              ),
+              data: (messages) {
+                // Combine the live stream (new messages) with anything we paginated historically
+                // Only take the paginated ones that aren't already in the live feed.
+                if (_lastDoc == null && messages.isNotEmpty) {
+                  _lastDoc = messages.last.docRef;
+                }
+                
+                final allMessages = [...messages];
+                for (var old in _loadedMessages) {
+                  if (!allMessages.any((m) => m.id == old.id)) {
+                    allMessages.add(old);
+                  }
+                }
+
+                return ListView.builder(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.all(20),
+                  reverse: true,
+                  itemCount: allMessages.length + (_isLoadingMore ? 1 : 0),
+                  itemBuilder: (context, index) {
+                    if (index == allMessages.length) {
+                      return const Center(
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(vertical: 20),
+                          child: CircularProgressIndicator(color: WavyTheme.neonCyan, strokeWidth: 2),
+                        ),
+                      );
+                    }
+                    final msg = allMessages[index];
+                    return Column(
+                      crossAxisAlignment: msg.senderId == currentUserId ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                      children: [
+                        if (msg.attachedItemId != null) 
+                          _ItemContextCardLoader(itemId: msg.attachedItemId!),
+                        _ChatBubble(
+                          text: msg.text,
+                          isMe: msg.senderId == currentUserId,
+                          time: msg.timestamp.split('T').last.substring(0, 5),
+                        ),
+                      ],
+                    );
+                  },
+                );
+              },
               loading: () => const Center(child: CircularProgressIndicator(color: WavyTheme.neonCyan)),
               error: (err, _) => Center(child: Text('Error: $err', style: const TextStyle(color: Colors.white))),
             ),

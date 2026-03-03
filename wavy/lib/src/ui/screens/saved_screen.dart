@@ -2,10 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../../data/dummy_data.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
-import '../theme/app_theme.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 class SavedScreen extends ConsumerWidget {
@@ -16,8 +14,7 @@ class SavedScreen extends ConsumerWidget {
     final locale = ref.watch(localeProvider);
     final savedItems = ref.watch(savedProvider);
 
-    // If nothing has been swiped/saved yet, show seeded dummy saved items
-    final items = savedItems.isEmpty ? DummyData.savedItems : savedItems;
+    final items = savedItems;
 
     return Scaffold(
       backgroundColor: Colors.black,

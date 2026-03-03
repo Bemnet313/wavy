@@ -1,6 +1,10 @@
 import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../models/models.dart';
+import '../../providers/providers.dart';
 import '../theme/app_theme.dart';
 
 class SellScreen extends ConsumerStatefulWidget {
@@ -17,8 +21,8 @@ class _SellScreenState extends ConsumerState<SellScreen> {
   
   String _selectedSize = 'M';
   String _selectedCondition = 'Good';
-  String _selectedCategory = 'Tops';
-  List<File> _images = [];
+  final String _selectedCategory = 'Tops';
+  final List<File> _images = [];
   bool _isPublishing = false;
 
   @override
@@ -35,8 +39,19 @@ class _SellScreenState extends ConsumerState<SellScreen> {
         imageQuality: 70,
       );
       if (pickedFile != null) {
+        final file = File(pickedFile.path);
+        // Check size (< 10MB)
+        if (file.lengthSync() > 10 * 1024 * 1024) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('IMAGE EXCEEDS 10MB LIMIT.')),
+            );
+          }
+          return;
+        }
+
         setState(() {
-          _images.add(File(pickedFile.path));
+          _images.add(file);
         });
       }
     } catch (e) {
@@ -58,6 +73,21 @@ class _SellScreenState extends ConsumerState<SellScreen> {
       return;
     }
 
+    if (_images.length > 5) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('MAXIMUM 5 VISUALS ALLOWED.')),
+      );
+      return;
+    }
+
+    final price = int.tryParse(_priceController.text) ?? 0;
+    if (price < 50 || price > 25000) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('PRICE MUST BE BETWEEN 50 AND 25,000 ETB.')),
+      );
+      return;
+    }
+
     final authState = ref.read(authProvider);
     if (!authState.isVerified) {
       // Trigger verification flow (already handled in UI but safety check)
@@ -70,17 +100,25 @@ class _SellScreenState extends ConsumerState<SellScreen> {
       final api = ref.read(apiServiceProvider);
       final List<String> imageUrls = [];
 
+      // Pre-generate the Item ID so we can pass it as metadata to storage
+      final itemId = api.generateId();
+
       // 1. Upload Images
       for (int i = 0; i < _images.length; i++) {
         final path = 'items/${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
-        final url = await api.uploadImage(_images[i], path);
+        final url = await api.uploadImage(
+          _images[i], 
+          path, 
+          customMetadata: {'itemId': itemId},
+        );
         imageUrls.add(url);
       }
 
       // 2. Publish Item
       final itemData = {
+        'id': itemId, // Explicitly use our pre-generated ID
         'title': _titleController.text,
-        'price': int.tryParse(_priceController.text) ?? 0,
+        'price': price,
         'size': _selectedSize,
         'condition': _selectedCondition.toLowerCase(),
         'category': _selectedCategory.toLowerCase(),
@@ -102,13 +140,94 @@ class _SellScreenState extends ConsumerState<SellScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('DROP FAILED: $e')),
-        );
+        if (e.toString().contains('POST_LIMIT_REACHED')) {
+          _showPremiumUpsell();
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('DROP FAILED: $e')),
+          );
+        }
       }
     } finally {
       if (mounted) setState(() => _isPublishing = false);
     }
+  }
+
+  Future<void> _showPremiumUpsell() async {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.black,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: WavyTheme.neonCyan, width: 2),
+        ),
+        title: Text(
+          'POST LIMIT REACHED',
+          style: GoogleFonts.spaceGrotesk(
+            fontSize: 20,
+            fontWeight: FontWeight.w900,
+            color: Colors.white,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        content: Text(
+          'Subscribe to Premium to post 10 items per day (300/month) for only 200 Birr/month.',
+          style: GoogleFonts.spaceGrotesk(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Colors.white70,
+            height: 1.5,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        actionsAlignment: MainAxisAlignment.center,
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(
+              'CANCEL',
+              style: GoogleFonts.spaceGrotesk(
+                color: Colors.white54,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: WavyTheme.neonCyan,
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              try {
+                final api = ref.read(apiServiceProvider);
+                await api.requestPremium();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Request sent! We will contact you, or call us at 0942123939.'),
+                      duration: Duration(seconds: 4),
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error: $e')),
+                  );
+                }
+              }
+            },
+            child: Text(
+              'SUBSCRIBE',
+              style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -186,16 +305,40 @@ class _SellScreenState extends ConsumerState<SellScreen> {
                   itemBuilder: (context, index) {
                     if (index == _images.length) {
                       return GestureDetector(
-                        onTap: _pickImage,
+                        onTap: _images.length >= 5 ? null : _pickImage,
                         child: Container(
                           width: 160,
                           margin: const EdgeInsets.only(right: 12),
                           decoration: BoxDecoration(
                             color: Colors.white.withValues(alpha: 0.02),
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                            border: Border.all(
+                              color: _images.length >= 5 
+                                  ? Colors.red.withValues(alpha: 0.3) 
+                                  : Colors.white.withValues(alpha: 0.1),
+                            ),
                           ),
-                          child: const Icon(Icons.add_rounded, color: Colors.white, size: 32),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                _images.length >= 5 ? Icons.block_rounded : Icons.add_rounded, 
+                                color: _images.length >= 5 ? Colors.red : Colors.white, 
+                                size: 32,
+                              ),
+                              if (_images.length >= 5) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  'LIMIT (5)',
+                                  style: GoogleFonts.spaceGrotesk(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.red,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
                         ),
                       );
                     }
@@ -478,7 +621,15 @@ class _SellScreenState extends ConsumerState<SellScreen> {
                         fontWeight: FontWeight.w900,
                         letterSpacing: 2,
                       ).copyWith(fontFamilyFallback: const ['Noto Sans Ethiopic']),
-      }
+                    ),
+              ),
+            ),
+            const SizedBox(height: 48),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _FormLabel extends StatelessWidget {

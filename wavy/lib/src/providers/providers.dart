@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_auth/firebase_auth.dart' as fb;
+import 'package:firebase_messaging/firebase_messaging.dart';
 import '../models/models.dart';
 import '../services/api_service.dart';
 import '../local_storage/hive_service.dart';
@@ -14,8 +16,6 @@ final apiServiceProvider = Provider<ApiService>((ref) {
 final hiveServiceProvider = Provider<HiveService>((ref) {
   return HiveService();
 });
-
-import 'package:firebase_auth/firebase_auth.dart' as fb;
 
 class AuthState {
   final String? phone;
@@ -56,8 +56,6 @@ class AuthState {
     );
   }
 }
-
-import 'package:firebase_messaging/firebase_messaging.dart';
 
 class AuthNotifier extends StateNotifier<AuthState> {
   final ApiService _api;
@@ -192,12 +190,18 @@ class FeedState {
   final bool isLoading;
   final String? error;
   final int currentPage;
+  final String? gender;
+  final String? category;
+  final List<String>? sizes;
 
   const FeedState({
     this.items = const [],
     this.isLoading = false,
     this.error,
     this.currentPage = 1,
+    this.gender,
+    this.category,
+    this.sizes,
   });
 
   FeedState copyWith({
@@ -205,12 +209,18 @@ class FeedState {
     bool? isLoading,
     String? error,
     int? currentPage,
+    String? gender,
+    String? category,
+    List<String>? sizes,
   }) {
     return FeedState(
       items: items ?? this.items,
       isLoading: isLoading ?? this.isLoading,
       error: error,
       currentPage: currentPage ?? this.currentPage,
+      gender: gender ?? this.gender,
+      category: category ?? this.category,
+      sizes: sizes ?? this.sizes,
     );
   }
 }
@@ -220,11 +230,22 @@ class FeedNotifier extends StateNotifier<FeedState> {
 
   FeedNotifier(this._api) : super(const FeedState());
 
-  Future<void> loadFeed() async {
+  Future<void> loadFeed({String? gender, String? category, List<String>? sizes}) async {
     if (state.isLoading) return;
-    state = state.copyWith(isLoading: true, error: null);
+    state = state.copyWith(
+      isLoading: true, 
+      error: null, 
+      gender: gender, 
+      category: category, 
+      sizes: sizes
+    );
     try {
-      final items = await _api.getFeed(page: 1);
+      final items = await _api.getFeed(
+        limit: 20,
+        gender: state.gender,
+        category: state.category,
+        sizes: state.sizes,
+      );
       state = state.copyWith(items: items, isLoading: false, currentPage: 1);
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
@@ -236,7 +257,14 @@ class FeedNotifier extends StateNotifier<FeedState> {
     state = state.copyWith(isLoading: true);
     try {
       final nextPage = state.currentPage + 1;
-      final items = await _api.getFeed(page: nextPage);
+      final startAfterId = state.items.isNotEmpty ? state.items.last.id : null;
+      final items = await _api.getFeed(
+        limit: 20, 
+        startAfterId: startAfterId,
+        gender: state.gender,
+        category: state.category,
+        sizes: state.sizes,
+      );
       state = state.copyWith(
         items: [...state.items, ...items],
         isLoading: false,
@@ -278,8 +306,12 @@ class SavedNotifier extends StateNotifier<List<WavyItem>> {
     if (userId == null) return;
 
     if (!state.any((i) => i.id == item.id)) {
-      state = [...state, item];
-      await _api.saveItem(userId, item.id);
+      try {
+        await _api.saveItem(userId, item.id);
+        state = [...state, item];
+      } catch (e) {
+        rethrow;
+      }
     }
   }
 
@@ -436,6 +468,10 @@ final conversationsProvider = StreamProvider<List<ChatConversation>>((ref) {
 
 final messagesProvider = StreamProvider.family<List<ChatMessage>, String>((ref, conversationId) {
   return ref.watch(apiServiceProvider).getMessages(conversationId);
+});
+
+final sellerListingsProvider = FutureProvider.family<List<WavyItem>, String>((ref, sellerId) {
+  return ref.watch(apiServiceProvider).getSellerListings(sellerId);
 });
 
 // ─── Locale Provider ───────────────────────────────────────

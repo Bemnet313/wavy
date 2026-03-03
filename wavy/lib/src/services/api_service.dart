@@ -1,35 +1,17 @@
 import 'dart:io';
-import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../models/models.dart';
 
 class ApiService {
-  late final Dio _dio;
   final fb.FirebaseAuth _auth = fb.FirebaseAuth.instance;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final FirebaseFunctions _functions = FirebaseFunctions.instance;
   
-  // Load from .env, default to localhost for development
-  static String get _defaultBaseUrl => dotenv.env['API_URL'] ?? 'http://localhost:3000';
-  
-  ApiService({String? baseUrl}) {
-    _dio = Dio(BaseOptions(
-      baseUrl: baseUrl ?? _defaultBaseUrl,
-      connectTimeout: const Duration(seconds: 10),
-      receiveTimeout: const Duration(seconds: 10),
-      headers: {'Content-Type': 'application/json'},
-    ));
-    
-    // Add logging interceptor
-    _dio.interceptors.add(LogInterceptor(
-      requestBody: true,
-      responseBody: true,
-      logPrint: (log) {}, // Silent in production
-    ));
-  }
+  ApiService();
 
   // ─── Auth (Firebase) ────────────────────────────────────
   
@@ -62,7 +44,7 @@ class ApiService {
   // ─── Feed (Firestore) ───────────────────────────────────
   Future<List<WavyItem>> getFeed({
     int limit = 20,
-    DocumentSnapshot? startAfter,
+    String? startAfterId,
     String? gender,
     List<String>? sizes,
     String? category,
@@ -82,10 +64,17 @@ class ApiService {
       query = query.where('size', whereIn: sizes);
     }
 
+    // Inactive sellers are handled by the updateSellerActivity Cloud Function
+    // which sets status to 'inactive'. We simply exclude those items.
+    query = query.where('status', isNotEqualTo: 'inactive');
+
     query = query.orderBy('created_at', descending: true).limit(limit);
 
-    if (startAfter != null) {
-      query = query.startAfterDocument(startAfter);
+    if (startAfterId != null) {
+      final doc = await _db.collection('items').doc(startAfterId).get();
+      if (doc.exists) {
+        query = query.startAfterDocument(doc);
+      }
     }
 
     final snapshot = await query.get();
@@ -103,13 +92,11 @@ class ApiService {
     });
   }
 
-  // ─── Interest ───────────────────────────────────────────
-  // ... (will refactor later)
-
   // ─── Media (Storage) ────────────────────────────────────
-  Future<String> uploadImage(File file, String path) async {
+  Future<String> uploadImage(File file, String path, {Map<String, String>? customMetadata}) async {
     final ref = FirebaseStorage.instance.ref().child(path);
-    final uploadTask = ref.putFile(file);
+    final metadata = SettableMetadata(customMetadata: customMetadata);
+    final uploadTask = ref.putFile(file, metadata);
     final snapshot = await uploadTask;
     return await snapshot.ref.getDownloadURL();
   }
@@ -122,17 +109,24 @@ class ApiService {
       'id': docRef.id,
       'created_at': FieldValue.serverTimestamp(),
     };
-    await docRef.set(dataWithId);
-    return WavyItem.fromJson(dataWithId);
+    try {
+      await docRef.set(dataWithId);
+      return WavyItem.fromJson(dataWithId);
+    } catch (e) {
+      if (e.toString().contains('resource-exhausted') || e.toString().contains('limit')) {
+        throw Exception('POST_LIMIT_REACHED');
+      }
+      rethrow;
+    }
   }
 
   // ─── Mark Sold ──────────────────────────────────────────
   Future<void> markSold(String itemId) async {
-    await _dio.patch('/items/$itemId', data: {'status': 'sold'});
+    await _db.collection('items').doc(itemId).update({'status': 'sold'});
   }
 
   Future<void> markPurchased(String itemId, String userId) async {
-    await _dio.patch('/items/$itemId', data: {'status': 'sold'});
+    await _db.collection('items').doc(itemId).update({'status': 'sold'});
     await logEvent(WavyEvent(
       userId: userId,
       itemId: itemId,
@@ -144,32 +138,42 @@ class ApiService {
   }
 
   // ─── Seller Dashboard ──────────────────────────────────
-  Future<Seller> getSeller(String sellerId) async {
-    final response = await _dio.get('/sellers/$sellerId');
-    return Seller.fromJson(response.data as Map<String, dynamic>);
+  Future<Seller?> getSeller(String sellerId) async {
+    try {
+      final doc = await _db.collection('sellers').doc(sellerId).get();
+      if (doc.exists) {
+        return Seller.fromJson({
+          ...doc.data()!,
+          'id': doc.id,
+        });
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<String?> getSellerPhone(String sellerId) async {
+    try {
+      final result = await _functions.httpsCallable('getSellerPhone').call({
+        'sellerId': sellerId,
+      });
+      return result.data['phone'] as String?;
+    } catch (e) {
+      debugPrint('Error fetching private phone: $e');
+      return null;
+    }
   }
 
   Future<List<WavyItem>> getSellerListings(String sellerId) async {
-    final response = await _dio.get('/items', queryParameters: {
-      'seller_id': sellerId,
-    });
-    final data = response.data as List;
-    return data.map((json) => WavyItem.fromJson(json as Map<String, dynamic>)).toList();
-  }
-
-  // ─── Saved Items ────────────────────────────────────────
-  Future<List<WavyItem>> getSavedItems(List<String> itemIds) async {
-    if (itemIds.isEmpty) return [];
-    final List<WavyItem> items = [];
-    for (final id in itemIds) {
-      try {
-        final item = await getItem(id);
-        items.add(item);
-      } catch (_) {
-        // Item may have been deleted
-      }
-    }
-    return items;
+    final snapshot = await _db.collection('items')
+        .where('seller_id', isEqualTo: sellerId)
+        .orderBy('created_at', descending: true)
+        .get();
+    return snapshot.docs.map((doc) => WavyItem.fromJson({
+      ...doc.data(),
+      'id': doc.id,
+    })).toList();
   }
 
   // ─── Swipe Logging ──────────────────────────────────────
@@ -185,9 +189,8 @@ class ApiService {
 
     // Increment swipe count
     try {
-      final item = await getItem(itemId);
-      await _dio.patch('/items/$itemId', data: {
-        'swipe_count': item.swipeCount + 1,
+      await _db.collection('items').doc(itemId).update({
+        'swipe_count': FieldValue.increment(1),
       });
     } catch (_) {}
   }
@@ -195,7 +198,7 @@ class ApiService {
   // ─── Events ─────────────────────────────────────────────
   Future<void> logEvent(WavyEvent event) async {
     try {
-      await _dio.post('/events', data: event.toJson());
+      await _db.collection('events').add(event.toJson());
     } catch (_) {
       // Will be queued offline if this fails
     }
@@ -218,24 +221,13 @@ class ApiService {
     await _db.collection('users').doc(user.id).set(user.toJson());
   }
 
-  // ─── Sellers (Firestore) ────────────────────────────────
-  Future<Seller?> getSeller(String sellerId) async {
-    try {
-      final doc = await _db.collection('sellers').doc(sellerId).get();
-      if (doc.exists) {
-        return Seller.fromJson({
-          ...doc.data()!,
-          'id': doc.id,
-        });
-      }
-      return null;
-    } catch (_) {
-      return null;
-    }
-  }
-
   Future<void> updateUser(String userId, Map<String, dynamic> data) async {
     await _db.collection('users').doc(userId).update(data);
+  }
+
+  // ─── Utility ────────────────────────────────────────────
+  String generateId() {
+    return _db.collection('temp').doc().id;
   }
 
   // ─── Saved Items (Firestore) ──────────────────────────────
@@ -254,9 +246,14 @@ class ApiService {
     final itemIds = snapshot.docs.map((doc) => doc.id).toList();
     if (itemIds.isEmpty) return [];
     
-    // Fetch actual items
-    final itemDocs = await _db.collection('items').where(FieldPath.documentId, whereIn: itemIds).get();
-    return itemDocs.docs.map((doc) => WavyItem.fromJson({...doc.data(), 'id': doc.id})).toList();
+    // Chunk requests into 30 to bypass whereIn limits
+    final List<WavyItem> items = [];
+    for (var i = 0; i < itemIds.length; i += 30) {
+      final chunk = itemIds.sublist(i, i + 30 > itemIds.length ? itemIds.length : i + 30);
+      final itemDocs = await _db.collection('items').where(FieldPath.documentId, whereIn: chunk).get();
+      items.addAll(itemDocs.docs.map((doc) => WavyItem.fromJson({...doc.data(), 'id': doc.id})));
+    }
+    return items;
   }
 
   // ─── Chat (Firestore) ─────────────────────────────────────
@@ -277,10 +274,26 @@ class ApiService {
         .doc(conversationId)
         .collection('messages')
         .orderBy('timestamp', descending: true)
+        .limit(5)
         .snapshots()
         .map((snapshot) => snapshot.docs
-            .map((doc) => ChatMessage.fromJson({...doc.data(), 'id': doc.id}))
+            .map((doc) => ChatMessage.fromJson({...doc.data(), 'id': doc.id}, doc: doc))
             .toList());
+  }
+
+  Future<List<ChatMessage>> loadMoreMessages(String conversationId, DocumentSnapshot lastDoc) async {
+    final snapshot = await _db
+        .collection('conversations')
+        .doc(conversationId)
+        .collection('messages')
+        .orderBy('timestamp', descending: true)
+        .startAfterDocument(lastDoc)
+        .limit(5)
+        .get();
+
+    return snapshot.docs
+        .map((doc) => ChatMessage.fromJson({...doc.data(), 'id': doc.id}, doc: doc))
+        .toList();
   }
 
   Future<void> sendMessage(String conversationId, ChatMessage message) async {
@@ -299,26 +312,44 @@ class ApiService {
   }
 
   Future<String> startOrGetConversation(List<String> participants) async {
-    // Basic implementation: find existing one or create new
-    // For simplicity in prototype, we just search participants
+    final sortedParticipants = List<String>.from(participants)..sort();
+    final conversationKey = sortedParticipants.join('_');
+    
     final query = await _db.collection('conversations')
-        .where('participants', arrayContains: participants.first)
+        .where('conversation_key', isEqualTo: conversationKey)
+        .limit(1)
         .get();
         
-    for (var doc in query.docs) {
-      final convParts = (doc['participants'] as List).cast<String>();
-      if (convParts.length == participants.length && 
-          participants.every((p) => convParts.contains(p))) {
-        return doc.id;
+    if (query.docs.isNotEmpty) {
+      return query.docs.first.id;
+    }
+
+    // Check thread limits before creating a new one
+    final currentUser = _auth.currentUser;
+    if (currentUser != null) {
+      final activeThreads = await _db.collection('conversations')
+          .where('participants', arrayContains: currentUser.uid)
+          .count()
+          .get();
+
+      if (activeThreads.count! >= 75) {
+        throw Exception('THREAD_LIMIT_REACHED');
       }
     }
     
     final docRef = await _db.collection('conversations').add({
       'participants': participants,
+      'conversation_key': conversationKey,
       'updated_at': FieldValue.serverTimestamp(),
       'created_at': FieldValue.serverTimestamp(),
     });
     return docRef.id;
+  }
+
+  Future<void> deleteConversation(String conversationId) async {
+    // Note: To fully delete a thread, cloud functions should ideally sweep
+    // the subcollections. For the client side, we remove the doc.
+    await _db.collection('conversations').doc(conversationId).delete();
   }
 
   // ─── Cloud Functions & Notifications ───────────────────
@@ -338,6 +369,10 @@ class ApiService {
     }
   }
 
+  Future<void> requestPremium() async {
+    await _functions.httpsCallable('requestPremium').call();
+  }
+
   // ─── Analytics & Auditing ──────────────────────────────
   Future<void> logAudit(String eventName, Map<String, dynamic> params) async {
     final user = _auth.currentUser;
@@ -347,5 +382,27 @@ class ApiService {
       'user_id': user?.uid,
       'timestamp': FieldValue.serverTimestamp(),
     });
+  }
+
+  // ─── Data Migration (Experimental/Dev) ──────────────────
+  Future<void> migrateDummyData(List<WavyItem> items, List<Seller> sellers) async {
+    final batch = _db.batch();
+    
+    // Upload sellers
+    for (final seller in sellers) {
+      final docRef = _db.collection('sellers').doc(seller.id);
+      batch.set(docRef, seller.toJson());
+    }
+
+    // Upload items
+    for (final item in items) {
+      final docRef = _db.collection('items').doc(item.id);
+      final json = item.toJson();
+      // Ensure created_at is a Timestamp for Firestore sorting
+      json['created_at'] = FieldValue.serverTimestamp();
+      batch.set(docRef, json);
+    }
+
+    await batch.commit();
   }
 }

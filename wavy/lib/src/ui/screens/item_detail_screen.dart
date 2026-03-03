@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../../data/dummy_data.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
 import '../theme/app_theme.dart';
@@ -71,9 +70,30 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not start chat: $e')),
-        );
+        if (e.toString().contains('THREAD_LIMIT_REACHED')) {
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              backgroundColor: Colors.black,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: const BorderSide(color: WavyTheme.neonCyan, width: 2),
+              ),
+              title: Text('LIMIT REACHED', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w900)),
+              content: Text('You\'ve reached the 75 conversation limit. Delete an old thread to start a new one.', style: GoogleFonts.spaceGrotesk(color: Colors.white70)),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: Text('OK', style: GoogleFonts.spaceGrotesk(color: WavyTheme.neonCyan)),
+                ),
+              ],
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not start chat: $e')),
+          );
+        }
       }
     }
   }
@@ -159,8 +179,37 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
             ),
             actions: [
               GestureDetector(
-                onTap: () {
-                  ref.read(savedProvider.notifier).addItem(item);
+                onTap: () async {
+                  try {
+                    await ref.read(savedProvider.notifier).addItem(item);
+                  } catch (e) {
+                    if (e.toString().contains('SAVE_LIMIT_REACHED') && context.mounted) {
+                      showDialog(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          backgroundColor: Colors.black,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            side: const BorderSide(color: WavyTheme.neonCyan, width: 2),
+                          ),
+                          title: Text(
+                            'LIMIT REACHED',
+                            style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w900),
+                          ),
+                          content: Text(
+                            'Remove items from your list, it\'s full. Limit is 50 saved.',
+                            style: GoogleFonts.spaceGrotesk(color: Colors.white70),
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(ctx),
+                              child: Text('OK', style: GoogleFonts.spaceGrotesk(color: WavyTheme.neonCyan)),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+                  }
                 },
                 child: Container(
                   margin: const EdgeInsets.all(10),
@@ -436,7 +485,7 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  seller.phone,
+                                  seller.phone ?? '',
                                   style: GoogleFonts.spaceGrotesk(
                                     fontSize: 22,
                                     fontWeight: FontWeight.w900,

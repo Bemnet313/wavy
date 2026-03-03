@@ -18,7 +18,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
   final List<TextEditingController> _controllers =
       List.generate(6, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
-  bool _isLoading = false;
+  final bool _isLoading = false;
 
   @override
   void dispose() {
@@ -155,13 +155,13 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                           decoration: GlassDecoration.dark(opacity: 0.05),
                           child: Row(children: [
-                            const Icon(Icons.info_outline_rounded,
+                            const Icon(Icons.lock_outline_rounded,
                                 color: Colors.white, size: 16),
                             const SizedBox(width: 12),
                             Text(
                               (locale == 'am'
-                                  ? 'ለማሳያ: ማንኛውንም 6-ቁጥር ያስገቡ'
-                                  : 'DEBUG MODE: ANY SEQUENCE ACCEPTED').toUpperCase(),
+                                  ? 'ደህንነቱ የተጠበቀ ቁጥር እየጠበቅን ነው'
+                                  : 'AWAITING SECURE ENCRYPTION KEY').toUpperCase(),
                               style: GoogleFonts.spaceGrotesk(
                                 fontSize: 9, 
                                 fontWeight: FontWeight.w800,

@@ -1,26 +1,36 @@
 {
   "project_info": {
-    "project_number": "507863071244",
-    "project_id": "wavy-84284",
-    "storage_bucket": "wavy-84284.firebasestorage.app"
+    "project_number": "934451717707",
+    "project_id": "another-monday",
+    "storage_bucket": "another-monday.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:507863071244:android:ae2e1d6800f6de50030c29",
+        "mobilesdk_app_id": "1:934451717707:android:25eff71cd3fec78176cfce",
         "android_client_info": {
-          "package_name": "com.android.application"
+          "package_name": "com.wavy.wavy"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "934451717707-6t5apn4u6sv7cqutl5cqg31v0h3thm6n.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
-          "current_key": "AIzaSyDIzE8wFYpA32l_McCW80CiPFxKMaJRdpw"
+          "current_key": "AIzaSyBpPKX11BJYlNKUUzujwUy_D9TVVP1rzLE"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "934451717707-6t5apn4u6sv7cqutl5cqg31v0h3thm6n.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

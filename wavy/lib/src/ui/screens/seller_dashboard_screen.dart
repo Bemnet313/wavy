@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../../data/dummy_data.dart';
+import '../../models/models.dart';
 import '../../providers/providers.dart';
 import '../theme/app_theme.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -16,52 +15,27 @@ class SellerDashboardScreen extends ConsumerStatefulWidget {
 }
 
 class _SellerDashboardScreenState extends ConsumerState<SellerDashboardScreen> {
-  bool _isLoading = true;
-  Seller? _seller;
-  List<WavyItem> _listings = [];
-  String? _error;
-
   @override
   void initState() {
     super.initState();
-    _loadData();
-  }
-
-  Future<void> _loadData() async {
-    setState(() => _isLoading = true);
-    try {
-      final api = ref.read(apiServiceProvider);
-      final seller = await api.getSeller(widget.sellerId);
-      final listings = await api.getSellerListings(widget.sellerId);
-      
-      if (mounted) {
-        setState(() {
-          _seller = seller;
-          _listings = listings;
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = e.toString();
-          _isLoading = false;
-        });
-      }
-    }
+    // Pre-seed seller info if needed, but sellerProvider handle it
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(
+    final locale = ref.watch(localeProvider);
+    final listingsAsync = ref.watch(sellerListingsProvider(widget.sellerId));
+    
+    // We can fetch seller info using a future or just keep it as is if it's static
+    // Let's use a FutureBuilder for the seller info for now, or add a sellerInfoProvider
+    
+    return listingsAsync.when(
+      data: (listings) => _buildDashboard(context, listings, locale),
+      loading: () => const Scaffold(
         backgroundColor: Colors.black,
         body: Center(child: CircularProgressIndicator(color: WavyTheme.neonCyan)),
-      );
-    }
-
-    if (_error != null || _seller == null) {
-      return Scaffold(
+      ),
+      error: (err, _) => Scaffold(
         backgroundColor: Colors.black,
         body: Center(
           child: Column(
@@ -69,40 +43,58 @@ class _SellerDashboardScreenState extends ConsumerState<SellerDashboardScreen> {
             children: [
               const Icon(Icons.error_outline_rounded, color: Colors.white, size: 48),
               const SizedBox(height: 16),
-              Text(_error ?? 'SELLER NOT FOUND', style: const TextStyle(color: Colors.white)),
+              Text('ERROR: $err', style: const TextStyle(color: Colors.white)),
               const SizedBox(height: 24),
-              ElevatedButton(onPressed: _loadData, child: const Text('RETRY')),
+              ElevatedButton(
+                onPressed: () => ref.refresh(sellerListingsProvider(widget.sellerId)), 
+                child: const Text('RETRY')
+              ),
             ],
           ),
         ),
-      );
-    }
-
-    final locale = ref.watch(localeProvider);
-    final seller = _seller!;
-    final listings = _listings;
-
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: Text(
-          (locale == 'am' ? 'የሻጭ ዳሽቦርድ' : 'SELLER DASHBOARD').toUpperCase(),
-          style: GoogleFonts.spaceGrotesk(
-            fontWeight: FontWeight.w900,
-            letterSpacing: 1.5,
-            fontSize: 16,
-          ),
-        ),
-        centerTitle: true,
-        backgroundColor: Colors.black,
-        elevation: 0,
-        foregroundColor: Colors.white,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+    );
+  }
+
+  Widget _buildDashboard(BuildContext context, List<WavyItem> listings, String locale) {
+    return FutureBuilder<Seller?>(
+      future: ref.read(apiServiceProvider).getSeller(widget.sellerId),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData && snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            backgroundColor: Colors.black,
+            body: Center(child: CircularProgressIndicator(color: WavyTheme.neonCyan)),
+          );
+        }
+        final seller = snapshot.data;
+        if (seller == null) {
+          return const Scaffold(
+            backgroundColor: Colors.black,
+            body: Center(child: Text('SELLER NOT FOUND', style: TextStyle(color: Colors.white))),
+          );
+        }
+
+        return Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            title: Text(
+              (locale == 'am' ? 'የሻጭ ዳሽቦርድ' : 'SELLER DASHBOARD').toUpperCase(),
+              style: GoogleFonts.spaceGrotesk(
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.5,
+                fontSize: 16,
+              ),
+            ),
+            centerTitle: true,
+            backgroundColor: Colors.black,
+            elevation: 0,
+            foregroundColor: Colors.white,
+          ),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
             // Seller profile card (Dark Theme)
             Container(
               width: double.infinity,

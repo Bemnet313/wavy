@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../providers/providers.dart';
-import '../theme/app_theme.dart';
 
 class PhoneScreen extends ConsumerStatefulWidget {
   const PhoneScreen({super.key});
@@ -37,7 +36,6 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
   @override
   Widget build(BuildContext context) {
     final locale = ref.watch(localeProvider);
-    final authState = ref.watch(authProvider);
 
     // Listen for verification ID to navigate to OTP screen
     ref.listen(authProvider, (previous, next) {

@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_card_swiper/flutter_card_swiper.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../../data/dummy_data.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
 import '../theme/app_theme.dart';
@@ -18,60 +17,14 @@ class FeedScreen extends ConsumerStatefulWidget {
 
 class _FeedScreenState extends ConsumerState<FeedScreen> {
   final CardSwiperController _swiperController = CardSwiperController();
-  List<WavyItem> _items = [];
-  bool _isLoading = true;
-  String? _error;
   bool _canUndo = false;
 
   @override
   void initState() {
     super.initState();
-    _loadFeed();
-  }
-
-  Future<void> _loadFeed({String? gender, String? category, List<String>? sizes}) async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(feedProvider.notifier).loadFeed();
     });
-
-    try {
-      final items = await ref.read(apiServiceProvider).getFeed(
-        gender: gender,
-        category: category,
-        sizes: sizes,
-      );
-      
-      final hasSeenTutorial = ref.read(preferencesProvider).hasSeenTutorial;
-      if (!hasSeenTutorial) {
-        items.insert(0, const WavyItem(
-          id: 'tutorial',
-          title: 'Tutorial',
-          price: 0,
-          size: 'INFO',
-          condition: 'TUTORIAL',
-          images: [],
-          sellerId: 'system',
-          tagId: 'tut',
-          category: 'System',
-          createdAt: '',
-        ));
-      }
-
-      if (mounted) {
-        setState(() {
-          _items = items;
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = e.toString();
-          _isLoading = false;
-        });
-      }
-    }
   }
 
   @override
@@ -83,6 +36,24 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   @override
   Widget build(BuildContext context) {
     final locale = ref.watch(localeProvider);
+    final feedState = ref.watch(feedProvider);
+    final hasSeenTutorial = ref.watch(preferencesProvider).hasSeenTutorial;
+
+    final items = [...feedState.items];
+    if (!hasSeenTutorial && items.isNotEmpty && !items.any((i) => i.id == 'tutorial')) {
+      items.insert(0, const WavyItem(
+        id: 'tutorial',
+        title: 'Tutorial',
+        price: 0,
+        size: 'INFO',
+        condition: 'TUTORIAL',
+        images: [],
+        sellerId: 'system',
+        tagId: 'tut',
+        category: 'System',
+        createdAt: '',
+      ));
+    }
 
     return Scaffold(
       body: SafeArea(
@@ -125,22 +96,25 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
 
             // Swipe deck
             Expanded(
-              child: _isLoading 
+              child: feedState.isLoading 
                 ? const Center(child: CircularProgressIndicator(color: WavyTheme.neonCyan))
-                : _error != null
+                : feedState.error != null
                   ? Center(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           const Icon(Icons.error_outline_rounded, color: Colors.red, size: 48),
                           const SizedBox(height: 16),
-                          Text(_error!, style: const TextStyle(color: Colors.white)),
+                          Text(feedState.error!, style: const TextStyle(color: Colors.white)),
                           const SizedBox(height: 24),
-                          ElevatedButton(onPressed: _loadFeed, child: const Text('RETRY')),
+                          ElevatedButton(
+                            onPressed: () => ref.read(feedProvider.notifier).loadFeed(), 
+                            child: const Text('RETRY')
+                          ),
                         ],
                       ),
                     )
-                  : _items.isEmpty
+                  : items.isEmpty
                       ? Center(
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
@@ -164,7 +138,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                               ),
                               const SizedBox(height: 24),
                               TextButton(
-                                onPressed: _loadFeed,
+                                onPressed: () => ref.read(feedProvider.notifier).loadFeed(),
                                 style: TextButton.styleFrom(
                                   foregroundColor: WavyTheme.neonMagenta,
                                   side: const BorderSide(color: WavyTheme.neonMagenta),
@@ -179,19 +153,56 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                           padding: const EdgeInsets.symmetric(horizontal: 16),
                           child: CardSwiper(
                             controller: _swiperController,
-                            cardsCount: _items.length,
-                            numberOfCardsDisplayed: _items.length.clamp(1, 3),
+                            cardsCount: items.length,
+                            numberOfCardsDisplayed: items.length.clamp(1, 3),
                             backCardOffset: const Offset(0, -38),
                             scale: 0.92,
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 8, vertical: 24),
-                        onSwipe: (prevIndex, currentIndex, direction) {
-                          final item = _items[prevIndex];
+                        onSwipe: (prevIndex, currentIndex, direction) async {
+                          final item = items[prevIndex];
                           if (item.id == 'tutorial') {
                             ref.read(preferencesProvider.notifier).markTutorialSeen();
                           } else {
                             if (direction == CardSwiperDirection.right) {
-                              ref.read(savedProvider.notifier).addItem(item);
+                              try {
+                                await ref.read(savedProvider.notifier).addItem(item);
+                              } catch (e) {
+                                if (e.toString().contains('SAVE_LIMIT_REACHED')) {
+                                  if (context.mounted) {
+                                    showDialog(
+                                      context: context,
+                                      builder: (ctx) => AlertDialog(
+                                        backgroundColor: Colors.black,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(16),
+                                          side: const BorderSide(color: WavyTheme.neonCyan, width: 2),
+                                        ),
+                                        title: Text(
+                                          'LIMIT REACHED',
+                                          style: GoogleFonts.spaceGrotesk(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                        content: Text(
+                                          'Remove items from your list, it\'s full. Limit is 50 saved.',
+                                          style: GoogleFonts.spaceGrotesk(color: Colors.white70),
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(ctx),
+                                            child: Text(
+                                              'OK',
+                                              style: GoogleFonts.spaceGrotesk(color: WavyTheme.neonCyan),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }
+                                }
+                              }
                             }
                             setState(() => _canUndo = true);
                           }
@@ -199,13 +210,12 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                         },
 
                         onEnd: () {
-                          setState(() {
-                            _items = [];
-                          });
+                          // This will trigger the empty state view
+                          ref.read(feedProvider.notifier).loadFeed();
                         },
                         cardBuilder: (context, index, percentThresholdX,
                             percentThresholdY) {
-                          final item = _items[index];
+                          final item = items[index];
                           if (item.id == 'tutorial') {
                             return const _TutorialCard();
                           }
@@ -219,7 +229,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
             ),
 
             // Action buttons
-            if (_items.isNotEmpty)
+            if (items.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(40, 0, 40, 24),
                 child: Row(
@@ -241,8 +251,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                       borderColor: Colors.white.withValues(alpha: 0.2),
                       size: 64,
                       onTap: () {
-                        if (_items.isNotEmpty) {
-                          context.push('/item/${_items.first.id}');
+                        if (items.isNotEmpty) {
+                          context.push('/item/${items.first.id}');
                         }
                       },
                     ),
@@ -549,7 +559,7 @@ class _FilterModalState extends ConsumerState<_FilterModal> {
                     Navigator.pop(context);
                     
                     // Trigger refresh in feed
-                    (context as Element).findAncestorStateOfType<_FeedScreenState>()?._loadFeed(
+                    ref.read(feedProvider.notifier).loadFeed(
                       gender: _selectedGender,
                       category: _selectedCategory,
                       sizes: _selectedSizes.toList(),

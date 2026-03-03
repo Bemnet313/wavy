@@ -121,7 +121,7 @@ class WavyItem {
 class Seller {
   final String id;
   final String name;
-  final String phone;
+  final String? phone;
   final String market;
   final String address;
   final String? avatarUrl;
@@ -132,7 +132,7 @@ class Seller {
   const Seller({
     required this.id,
     required this.name,
-    required this.phone,
+    this.phone,
     required this.market,
     this.address = 'Addis Ababa, Ethiopia',
     this.avatarUrl,
@@ -145,7 +145,7 @@ class Seller {
     return Seller(
       id: json['id'] as String,
       name: json['name'] as String,
-      phone: json['phone'] as String,
+      phone: json['phone'] as String?,
       market: json['market'] as String,
       address: json['address'] as String? ?? 'Addis Ababa, Ethiopia',
       avatarUrl: json['avatar_url'] as String?,
@@ -158,7 +158,7 @@ class Seller {
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
-        'phone': phone,
+        if (phone != null) 'phone': phone,
         'market': market,
         'address': address,
         'avatar_url': avatarUrl,
@@ -314,6 +314,9 @@ class ChatMessage {
   final String text;
   final String timestamp;
   final String? attachedItemId;
+  /// Firestore document reference used as a cursor for pagination.
+  /// Only populated when messages are loaded from Firestore queries.
+  final DocumentSnapshot? docRef;
 
   const ChatMessage({
     required this.id,
@@ -321,9 +324,10 @@ class ChatMessage {
     required this.text,
     required this.timestamp,
     this.attachedItemId,
+    this.docRef,
   });
 
-  factory ChatMessage.fromJson(Map<String, dynamic> json) {
+  factory ChatMessage.fromJson(Map<String, dynamic> json, {DocumentSnapshot? doc}) {
     String tsStr = '';
     final ts = json['timestamp'];
     if (ts is Timestamp) {
@@ -338,6 +342,7 @@ class ChatMessage {
       text: json['text'] as String,
       timestamp: tsStr,
       attachedItemId: json['attached_item_id'] as String?,
+      docRef: doc,
     );
   }
 

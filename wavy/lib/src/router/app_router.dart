@@ -10,7 +10,6 @@ import '../ui/screens/feed_screen.dart';
 import '../ui/screens/item_detail_screen.dart';
 import '../ui/screens/saved_screen.dart';
 import '../ui/screens/sell_screen.dart';
-import '../ui/screens/seller_dashboard_screen.dart';
 import '../ui/screens/profile_screen.dart';
 
 import '../ui/screens/messages_screen.dart';
