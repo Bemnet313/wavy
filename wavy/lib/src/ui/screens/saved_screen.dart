@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
+import '../../l10n/app_localizations.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 class SavedScreen extends ConsumerWidget {
@@ -12,6 +13,7 @@ class SavedScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final locale = ref.watch(localeProvider);
+    final tr = AppLocalizations.instance.tr;
     final savedItems = ref.watch(savedProvider);
 
     final items = savedItems;
@@ -33,7 +35,7 @@ class SavedScreen extends ConsumerWidget {
                   ),
                   const Spacer(),
                   Text(
-                    (locale == 'am' ? 'የተቀመጡ' : 'SAVED').toUpperCase(),
+                    tr('saved_title').toUpperCase(),
                     style: GoogleFonts.spaceGrotesk(
                       fontSize: 20, // slightly smaller to match feed aesthetic
                       fontWeight: FontWeight.w900,
@@ -72,9 +74,7 @@ class SavedScreen extends ConsumerWidget {
                           ),
                           const SizedBox(height: 24),
                           Text(
-                            (locale == 'am'
-                                ? 'ገና ምንም አልተቀመጠም'
-                                : 'ARCHIVE EMPTY').toUpperCase(),
+                             tr('saved_empty').toUpperCase(),
                             style: GoogleFonts.spaceGrotesk(
                               fontSize: 14,
                               fontWeight: FontWeight.w900,
@@ -151,16 +151,15 @@ class _SavedItemCard extends StatelessWidget {
                 children: [
                   ClipRRect(
                     borderRadius: const BorderRadius.vertical(top: Radius.circular(2)),
-                    child: item.images.isNotEmpty
-                        ? (item.images.first.startsWith('http')
+                    child: item.images.isNotEmpty || item.thumbnailUrl != null
+                        ? ((item.thumbnailUrl ?? item.images.first).startsWith('http')
                             ? CachedNetworkImage(
-                                imageUrl: item.images.first,
+                                imageUrl: item.thumbnailUrl ?? item.images.first,
                                 fit: BoxFit.cover,
-                                placeholder: (_, __) => Container(color: Colors.black12),
-                                errorWidget: (_, __, ___) => const Icon(Icons.image_not_supported_outlined, color: Colors.white24),
+                                errorWidget: (context, url, error) => const Icon(Icons.image_not_supported),
                               )
                             : Image.asset(
-                                item.images.first,
+                                item.thumbnailUrl ?? item.images.first,
                                 fit: BoxFit.cover,
                                 errorBuilder: (_, __, ___) => const Icon(Icons.image_not_supported_outlined, color: Colors.white24),
                               ))

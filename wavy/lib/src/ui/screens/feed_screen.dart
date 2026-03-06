@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
+import '../../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 import '../widgets/wavy_card.dart';
 
@@ -16,14 +17,17 @@ class FeedScreen extends ConsumerStatefulWidget {
 }
 
 class _FeedScreenState extends ConsumerState<FeedScreen> {
-  final CardSwiperController _swiperController = CardSwiperController();
-  bool _canUndo = false;
+  late CardSwiperController _swiperController;
 
   @override
   void initState() {
     super.initState();
+    _swiperController = CardSwiperController();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(feedProvider.notifier).loadFeed();
+      final feedState = ref.read(feedProvider);
+      if (feedState.items.isEmpty && !feedState.isLoading) {
+        ref.read(feedProvider.notifier).loadFeed();
+      }
     });
   }
 
@@ -126,9 +130,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                               ),
                               const SizedBox(height: 16),
                               Text(
-                                locale == 'am'
-                                    ? 'ሁሉንም አይተዋል!'
-                                    : "ALL CAUGHT UP",
+                                AppLocalizations.instance.tr('feed_no_more'),
                                 style: GoogleFonts.spaceGrotesk(
                                   fontSize: 18,
                                   fontWeight: FontWeight.w900,
@@ -151,24 +153,30 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                         )
                       : Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: CardSwiper(
-                            controller: _swiperController,
-                            cardsCount: items.length,
-                            numberOfCardsDisplayed: items.length.clamp(1, 3),
-                            backCardOffset: const Offset(0, -38),
-                            scale: 0.92,
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 24),
-                        onSwipe: (prevIndex, currentIndex, direction) async {
-                          final item = items[prevIndex];
-                          if (item.id == 'tutorial') {
-                            ref.read(preferencesProvider.notifier).markTutorialSeen();
-                          } else {
-                            if (direction == CardSwiperDirection.right) {
-                              try {
-                                await ref.read(savedProvider.notifier).addItem(item);
-                              } catch (e) {
-                                if (e.toString().contains('SAVE_LIMIT_REACHED')) {
+                          child: RefreshIndicator(
+                            color: WavyTheme.neonCyan,
+                            backgroundColor: Colors.black,
+                            onRefresh: () async {
+                              await ref.read(feedProvider.notifier).loadFeed();
+                            },
+                            child: CardSwiper(
+                              controller: _swiperController,
+                              initialIndex: feedState.currentIndex,
+                              cardsCount: items.length,
+                              numberOfCardsDisplayed: items.length.clamp(1, 3),
+                              backCardOffset: const Offset(0, -38),
+                              scale: 0.92,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 24),
+                          onSwipe: (prevIndex, currentIndex, direction) async {
+                            final item = items[prevIndex];
+                            if (item.id == 'tutorial') {
+                              ref.read(preferencesProvider.notifier).markTutorialSeen();
+                            } else {
+                              if (direction == CardSwiperDirection.right) {
+                                try {
+                                  await ref.read(savedProvider.notifier).addItem(item);
+                                } catch (e) {
                                   if (context.mounted) {
                                     showDialog(
                                       context: context,
@@ -203,29 +211,32 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                                   }
                                 }
                               }
+                              if (currentIndex != null) {
+                                ref.read(feedProvider.notifier).setCurrentIndex(currentIndex);
+                              }
+                              ref.read(feedProvider.notifier).setCanUndo(true);
                             }
-                            setState(() => _canUndo = true);
-                          }
-                          return true;
-                        },
+                            return true;
+                          },
 
-                        onEnd: () {
-                          // This will trigger the empty state view
-                          ref.read(feedProvider.notifier).loadFeed();
-                        },
-                        cardBuilder: (context, index, percentThresholdX,
-                            percentThresholdY) {
-                          final item = items[index];
-                          if (item.id == 'tutorial') {
-                            return const _TutorialCard();
-                          }
-                          return GestureDetector(
-                            onTap: () => context.push('/item/${item.id}'),
-                            child: WavyCard(item: item, locale: locale),
-                          );
-                        },
-                      ),
-                    ),
+                          onEnd: () {
+                            // This will trigger the empty state view
+                            ref.read(feedProvider.notifier).loadFeed();
+                          },
+                          cardBuilder: (context, index, percentThresholdX,
+                              percentThresholdY) {
+                            final item = items[index];
+                            if (item.id == 'tutorial') {
+                              return _TutorialCard(locale: locale);
+                            }
+                            return GestureDetector(
+                              onTap: () => context.push('/item/${item.id}'),
+                              child: WavyCard(item: item, locale: locale),
+                            );
+                          },
+                        ),
+                          ),
+                        ),
             ),
 
             // Action buttons
@@ -237,12 +248,12 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                   children: [
                     _ActionButton(
                       icon: Icons.u_turn_left_rounded,
-                      color: _canUndo ? Colors.white : Colors.white24,
-                      borderColor: _canUndo ? Colors.white.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.05),
+                      color: feedState.canUndo ? Colors.white : Colors.white24,
+                      borderColor: feedState.canUndo ? Colors.white.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.05),
                       size: 64,
-                      onTap: _canUndo ? () async {
+                      onTap: feedState.canUndo ? () async {
                         _swiperController.undo();
-                        setState(() => _canUndo = false);
+                        ref.read(feedProvider.notifier).setCanUndo(false);
                       } : () {},
                     ),
                     _ActionButton(
@@ -345,7 +356,8 @@ class _ActionButtonState extends State<_ActionButton> {
 }
 
 class _TutorialCard extends StatelessWidget {
-  const _TutorialCard();
+  final String locale;
+  const _TutorialCard({required this.locale});
 
   @override
   Widget build(BuildContext context) {
@@ -368,25 +380,25 @@ class _TutorialCard extends StatelessWidget {
             const Icon(Icons.swipe_rounded, color: WavyTheme.neonMagenta, size: 100),
             const SizedBox(height: 24),
             Text(
-              'SWIPE RIGHT TO SAVE',
+              AppLocalizations.instance.tr('feed_swipe_right'),
               textAlign: TextAlign.center,
               style: GoogleFonts.spaceGrotesk(
                 color: Colors.white,
                 fontSize: 20,
                 fontWeight: FontWeight.w900,
                 letterSpacing: 2,
-              ),
+              ).copyWith(fontFamilyFallback: const ['Noto Sans Ethiopic']),
             ),
             const SizedBox(height: 8),
             Text(
-              'SWIPE LEFT TO PASS',
+              AppLocalizations.instance.tr('feed_swipe_left'),
               textAlign: TextAlign.center,
               style: GoogleFonts.spaceGrotesk(
                 color: Colors.white.withValues(alpha: 0.5),
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 1.2,
-              ),
+              ).copyWith(fontFamilyFallback: const ['Noto Sans Ethiopic']),
             ),
           ],
         ),
@@ -403,9 +415,29 @@ class _FilterModal extends ConsumerStatefulWidget {
 }
 
 class _FilterModalState extends ConsumerState<_FilterModal> {
-  String _selectedGender = 'Women';
-  final Set<String> _selectedSizes = {'M'};
-  String _selectedCategory = 'Clothes';
+  String? _selectedGender;
+  Set<String> _selectedSizes = {};
+  String? _selectedCategory;
+  RangeValues _priceRange = const RangeValues(0, 25000);
+  bool _isPriceFiltered = false;
+  bool _isCleared = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Pre-fill from current feedState filters
+    final feedState = ref.read(feedProvider);
+    _selectedGender = feedState.gender;
+    _selectedSizes = Set.from(feedState.sizes ?? []);
+    _selectedCategory = feedState.category;
+    if (feedState.minPrice != null || feedState.maxPrice != null) {
+      _isPriceFiltered = true;
+      _priceRange = RangeValues(
+        (feedState.minPrice ?? 0).toDouble(),
+        (feedState.maxPrice ?? 25000).toDouble(),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -415,178 +447,179 @@ class _FilterModalState extends ConsumerState<_FilterModal> {
         color: Theme.of(context).scaffoldBackgroundColor,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Filters',
-                style: GoogleFonts.spaceGrotesk(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-              IconButton(
-                onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.close, color: Colors.white),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Gender',
-            style: GoogleFonts.spaceGrotesk(
-              fontWeight: FontWeight.bold,
-              color: Colors.white.withValues(alpha: 0.8),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            children: ['Men', 'Women'].map((gender) => ChoiceChip(
-              label: Text(
-                gender,
-                style: GoogleFonts.spaceGrotesk(color: _selectedGender == gender ? Colors.black : Colors.white),
-              ),
-              selected: _selectedGender == gender,
-              onSelected: (selected) {
-                if (selected) setState(() => _selectedGender = gender);
-              },
-              backgroundColor: Colors.white.withValues(alpha: 0.05),
-              selectedColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
-              ),
-            )).toList(),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Sizes',
-            style: GoogleFonts.spaceGrotesk(
-              fontWeight: FontWeight.bold,
-              color: Colors.white.withValues(alpha: 0.8),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            children: ['S', 'M', 'L', 'XL', 'XXL'].map((size) => ChoiceChip(
-              label: Text(
-                size,
-                style: GoogleFonts.spaceGrotesk(color: _selectedSizes.contains(size) ? Colors.black : Colors.white),
-              ),
-              selected: _selectedSizes.contains(size),
-              onSelected: (selected) {
-                setState(() {
-                  if (selected) {
-                    _selectedSizes.add(size);
-                  } else {
-                    _selectedSizes.remove(size);
-                  }
-                });
-              },
-              backgroundColor: Colors.white.withValues(alpha: 0.05),
-              selectedColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
-              ),
-            )).toList(),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Category',
-            style: GoogleFonts.spaceGrotesk(
-              fontWeight: FontWeight.bold,
-              color: Colors.white.withValues(alpha: 0.8),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            children: ['Clothes', 'Shoes'].map((cat) => ChoiceChip(
-              label: Text(
-                cat,
-                style: GoogleFonts.spaceGrotesk(color: _selectedCategory == cat ? Colors.black : Colors.white),
-              ),
-              selected: _selectedCategory == cat,
-              onSelected: (selected) {
-                if (selected) setState(() => _selectedCategory = cat);
-              },
-              backgroundColor: Colors.white.withValues(alpha: 0.05),
-              selectedColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
-              ),
-            )).toList(),
-          ),
-          const SizedBox(height: 24),
-          Row(
-            children: [
-              Expanded(
-                child: TextButton(
-                  onPressed: () {
-                    setState(() {
-                      _selectedGender = 'Men';
-                      _selectedSizes.clear();
-                      _selectedCategory = 'Clothes';
-                    });
-                  },
-                  child: Text(
-                    'CLEAR',
-                    style: GoogleFonts.spaceGrotesk(
-                      color: Colors.white54,
-                      fontWeight: FontWeight.bold,
-                    ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'FILTERS',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                    letterSpacing: 1.5,
                   ),
                 ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                flex: 2,
-                child: ElevatedButton(
-                  onPressed: () {
-                    // Log event
-                    debugPrint('apply_filters: payload={gender: $_selectedGender, sizes: ${_selectedSizes.toList()}, category: $_selectedCategory}');
-                    
-                    // Close modal
-                    Navigator.pop(context);
-                    
-                    // Trigger refresh in feed
-                    ref.read(feedProvider.notifier).loadFeed(
-                      gender: _selectedGender,
-                      category: _selectedCategory,
-                      sizes: _selectedSizes.toList(),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(4),
-                    ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close, color: Colors.white),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Text('GENDER', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w800, color: Colors.white.withValues(alpha: 0.6), fontSize: 10, letterSpacing: 1.5)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: ['Men', 'Women'].map((gender) => ChoiceChip(
+                label: Text(gender, style: GoogleFonts.spaceGrotesk(color: _selectedGender == gender ? Colors.black : Colors.white)),
+                selected: _selectedGender == gender,
+                onSelected: (selected) {
+                  setState(() {
+                    _isCleared = false;
+                    _selectedGender = selected ? gender : null;
+                  });
+                },
+                backgroundColor: Colors.white.withValues(alpha: 0.05),
+                selectedColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
+              )).toList(),
+            ),
+            const SizedBox(height: 16),
+            Text('SIZES', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w800, color: Colors.white.withValues(alpha: 0.6), fontSize: 10, letterSpacing: 1.5)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: ['XS', 'S', 'M', 'L', 'XL', 'XXL'].map((size) => ChoiceChip(
+                label: Text(size, style: GoogleFonts.spaceGrotesk(color: _selectedSizes.contains(size) ? Colors.black : Colors.white)),
+                selected: _selectedSizes.contains(size),
+                onSelected: (selected) {
+                  setState(() {
+                    _isCleared = false;
+                    if (selected) { _selectedSizes.add(size); } else { _selectedSizes.remove(size); }
+                  });
+                },
+                backgroundColor: Colors.white.withValues(alpha: 0.05),
+                selectedColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
+              )).toList(),
+            ),
+            const SizedBox(height: 16),
+            Text('CATEGORY', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w800, color: Colors.white.withValues(alpha: 0.6), fontSize: 10, letterSpacing: 1.5)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: ['Clothes', 'Shoes'].map((cat) => ChoiceChip(
+                label: Text(cat, style: GoogleFonts.spaceGrotesk(color: _selectedCategory == cat ? Colors.black : Colors.white)),
+                selected: _selectedCategory == cat,
+                onSelected: (selected) {
+                  setState(() {
+                    _isCleared = false;
+                    _selectedCategory = selected ? cat : null;
+                  });
+                },
+                backgroundColor: Colors.white.withValues(alpha: 0.05),
+                selectedColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
+              )).toList(),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('PRICE RANGE', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w800, color: Colors.white.withValues(alpha: 0.6), fontSize: 10, letterSpacing: 1.5)),
+                if (_isPriceFiltered)
+                  Text(
+                    '${_priceRange.start.toInt()} – ${_priceRange.end.toInt()} ETB',
+                    style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 11),
                   ),
-                  child: Text(
-                    'APPLY FILTERS',
-                    style: GoogleFonts.spaceGrotesk(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Expanded(
+                  child: RangeSlider(
+                    values: _priceRange,
+                    min: 0,
+                    max: 25000,
+                    divisions: 50,
+                    activeColor: Colors.white,
+                    inactiveColor: Colors.white.withValues(alpha: 0.15),
+                    onChanged: (values) {
+                      setState(() {
+                        _isCleared = false;
+                        _isPriceFiltered = true;
+                        _priceRange = values;
+                      });
+                    },
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-        ],
+                if (_isPriceFiltered)
+                  GestureDetector(
+                    onTap: () => setState(() {
+                      _isPriceFiltered = false;
+                      _priceRange = const RangeValues(0, 25000);
+                    }),
+                    child: const Icon(Icons.close, color: Colors.white54, size: 18),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _selectedGender = null;
+                        _selectedSizes = {};
+                        _selectedCategory = null;
+                        _isPriceFiltered = false;
+                        _priceRange = const RangeValues(0, 25000);
+                        _isCleared = true;
+                      });
+                    },
+                    child: Text('CLEAR ALL', style: GoogleFonts.spaceGrotesk(color: Colors.white54, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      if (_isCleared) {
+                        ref.read(feedProvider.notifier).loadFeed(clearFilters: true);
+                      } else {
+                        ref.read(feedProvider.notifier).loadFeed(
+                          gender: _selectedGender,
+                          category: _selectedCategory,
+                          sizes: _selectedSizes.isEmpty ? null : _selectedSizes.toList(),
+                          minPrice: _isPriceFiltered ? _priceRange.start.toInt() : null,
+                          maxPrice: _isPriceFiltered ? _priceRange.end.toInt() : null,
+                        );
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                    ),
+                    child: Text('APPLY FILTERS', style: GoogleFonts.spaceGrotesk(fontSize: 16, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+          ],
+        ),
       ),
     );
   }

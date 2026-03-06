@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
+import '../../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
@@ -30,7 +31,7 @@ class _SellerDashboardScreenState extends ConsumerState<SellerDashboardScreen> {
     // Let's use a FutureBuilder for the seller info for now, or add a sellerInfoProvider
     
     return listingsAsync.when(
-      data: (listings) => _buildDashboard(context, listings, locale),
+      data: (listings) => _buildDashboard(context, listings, locale, AppLocalizations.instance.tr),
       loading: () => const Scaffold(
         backgroundColor: Colors.black,
         body: Center(child: CircularProgressIndicator(color: WavyTheme.neonCyan)),
@@ -56,7 +57,7 @@ class _SellerDashboardScreenState extends ConsumerState<SellerDashboardScreen> {
     );
   }
 
-  Widget _buildDashboard(BuildContext context, List<WavyItem> listings, String locale) {
+  Widget _buildDashboard(BuildContext context, List<WavyItem> listings, String locale, String Function(String) tr) {
     return FutureBuilder<Seller?>(
       future: ref.read(apiServiceProvider).getSeller(widget.sellerId),
       builder: (context, snapshot) {
@@ -78,7 +79,7 @@ class _SellerDashboardScreenState extends ConsumerState<SellerDashboardScreen> {
           backgroundColor: Colors.black,
           appBar: AppBar(
             title: Text(
-              (locale == 'am' ? 'የሻጭ ዳሽቦርድ' : 'SELLER DASHBOARD').toUpperCase(),
+              tr('seller_dashboard').toUpperCase(),
               style: GoogleFonts.spaceGrotesk(
                 fontWeight: FontWeight.w900,
                 letterSpacing: 1.5,
@@ -188,21 +189,21 @@ class _SellerDashboardScreenState extends ConsumerState<SellerDashboardScreen> {
                 _StatCard(
                   icon: Icons.grid_view_rounded,
                   value: '${listings.length}',
-                  label: locale == 'am' ? 'ንቁ' : 'ACTIVE',
+                  label: tr('seller_active'),
                   color: Colors.white,
                 ),
                 const SizedBox(width: 16),
                 _StatCard(
                   icon: Icons.check_circle_rounded,
                   value: '${seller.totalSales}',
-                  label: locale == 'am' ? 'ተሽጧል' : 'SOLD',
+                  label: tr('seller_sold'),
                   color: Colors.white,
                 ),
                 const SizedBox(width: 16),
                 _StatCard(
                   icon: Icons.bolt_rounded,
                   value: '12',
-                  label: locale == 'am' ? 'ፍላጎቶች' : 'DROPS',
+                  label: tr('seller_drops'),
                   color: Colors.white,
                 ),
               ],
@@ -214,7 +215,7 @@ class _SellerDashboardScreenState extends ConsumerState<SellerDashboardScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  (locale == 'am' ? 'ዝርዝሮች' : 'COLLECTIONS').toUpperCase(),
+                  tr('seller_collections').toUpperCase(),
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 14,
                     fontWeight: FontWeight.w900,
@@ -235,8 +236,8 @@ class _SellerDashboardScreenState extends ConsumerState<SellerDashboardScreen> {
                       ClipRRect(
                         borderRadius: BorderRadius.circular(4),
                         child: CachedNetworkImage(
-                          imageUrl: item.images.isNotEmpty
-                              ? item.images.first
+                          imageUrl: (item.images.isNotEmpty || item.thumbnailUrl != null)
+                              ? (item.thumbnailUrl ?? item.images.first)
                               : 'https://picsum.photos/100/100',
                           width: 72,
                           height: 72,
@@ -290,8 +291,8 @@ class _SellerDashboardScreenState extends ConsumerState<SellerDashboardScreen> {
                                 const SizedBox(width: 10),
                                 Text(
                                   item.status == 'sold'
-                                      ? (locale == 'am' ? 'ተሽጧል' : 'SOLD')
-                                      : (locale == 'am' ? 'ንቁ' : 'ACTIVE'),
+                                      ? tr('seller_sold')
+                                      : tr('seller_active'),
                                   style: GoogleFonts.spaceGrotesk(
                                     fontSize: 10,
                                     fontWeight: FontWeight.w800,
@@ -319,7 +320,7 @@ class _SellerDashboardScreenState extends ConsumerState<SellerDashboardScreen> {
                             ),
                           ),
                           Text(
-                            (locale == 'am' ? 'ፍላጎት' : 'HITS').toUpperCase(),
+                            tr('seller_hits').toUpperCase(),
                             style: GoogleFonts.spaceGrotesk(
                               fontSize: 8,
                               fontWeight: FontWeight.w800,
@@ -335,6 +336,8 @@ class _SellerDashboardScreenState extends ConsumerState<SellerDashboardScreen> {
           ],
         ),
       ),
+    );
+      },
     );
   }
 }

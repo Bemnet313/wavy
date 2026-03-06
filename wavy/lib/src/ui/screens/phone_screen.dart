@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../providers/providers.dart';
+import '../../l10n/app_localizations.dart';
 
 class PhoneScreen extends ConsumerStatefulWidget {
   const PhoneScreen({super.key});
@@ -29,13 +30,20 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
   }
 
   void _continue() {
-    final phone = '+251${_phoneController.text.replaceAll(RegExp(r'\D'), '')}';
+    String raw = _phoneController.text.replaceAll(RegExp(r'\D'), '');
+    if (raw.startsWith('0')) {
+      raw = raw.substring(1);
+    }
+    final phone = '+251$raw';
+
+    // If we are already logged in, we still need to verify to get isVerified=true in auth state
+    // but we can pre-save the number to the profile if desired.
     ref.read(authProvider.notifier).sendOtp(phone);
   }
 
   @override
   Widget build(BuildContext context) {
-    final locale = ref.watch(localeProvider);
+
 
     // Listen for verification ID to navigate to OTP screen
     ref.listen(authProvider, (previous, next) {
@@ -91,7 +99,7 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
                         ),
                         const SizedBox(height: 48),
                         Text(
-                          (locale == 'am' ? 'ስልክ ቁጥርዎን ያስገቡ' : 'ENTER PHONE').toUpperCase(),
+                          AppLocalizations.instance.tr('onboarding_phone').toUpperCase(),
                           style: GoogleFonts.spaceGrotesk(
                             fontSize: 28,
                             fontWeight: FontWeight.w900,
@@ -101,9 +109,7 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          (locale == 'am'
-                              ? 'ዕቃ ለመሸጥ ከፈለጉ ብቻ እናረጋግጣለን'
-                              : "SYSTEM REQUIRES PHONE FOR NETWORK IDENTITY.").toUpperCase(),
+                          AppLocalizations.instance.tr('onboarding_phone_subtitle').toUpperCase(),
                           style: GoogleFonts.spaceGrotesk(
                             fontSize: 10,
                             fontWeight: FontWeight.w800,
@@ -215,7 +221,7 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
                               elevation: 0,
                             ),
                             child: Text(
-                              (locale == 'am' ? 'ቀጥል' : 'CONTINUE').toUpperCase(),
+                              AppLocalizations.instance.tr('cta_continue').toUpperCase(),
                               style: GoogleFonts.spaceGrotesk(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w900,

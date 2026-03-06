@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:go_router/go_router.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
 import '../theme/app_theme.dart';
@@ -20,10 +22,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   WavyItem? _attachedItem;
+  // ignore: unused_field
   bool _isLoadingItem = false;
   bool _isLoadingMore = false;
   final List<ChatMessage> _loadedMessages = [];
   DocumentSnapshot? _lastDoc;
+
+  // Other participant info
+  String _otherName = 'CHAT';
+  String? _otherPhone;
+  String? _otherUserId;
 
   @override
   void initState() {
@@ -32,6 +40,38 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _loadAttachedItem();
     }
     _scrollController.addListener(_onScroll);
+    _loadParticipantInfo();
+  }
+
+  Future<void> _loadParticipantInfo() async {
+    try {
+      final currentUserId = ref.read(authProvider).fbUser?.uid;
+      if (currentUserId == null) return;
+
+      final convDoc = await FirebaseFirestore.instance
+          .collection('conversations')
+          .doc(widget.chatId)
+          .get();
+      if (!convDoc.exists) return;
+
+      final participants = List<String>.from(convDoc.data()?['participants'] ?? []);
+      final otherId = participants.firstWhere((id) => id != currentUserId, orElse: () => '');
+      if (otherId.isEmpty) return;
+
+      _otherUserId = otherId;
+
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(otherId)
+          .get();
+      if (userDoc.exists && mounted) {
+        final data = userDoc.data()!;
+        setState(() {
+          _otherName = (data['fullName'] ?? data['name'] ?? 'User').toString().toUpperCase();
+          _otherPhone = data['phone'] as String?;
+        });
+      }
+    } catch (_) {}
   }
 
   @override
@@ -122,21 +162,36 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       appBar: AppBar(
         centerTitle: false,
         title: Text(
-          'CHAT',
+          _otherName,
           style: GoogleFonts.spaceGrotesk(
             fontSize: 14,
             fontWeight: FontWeight.w900,
             letterSpacing: 1,
           ),
         ),
+        actions: [
+          if (_otherPhone != null && _otherPhone!.isNotEmpty)
+            IconButton(
+              onPressed: () async {
+                final uri = Uri(scheme: 'tel', path: _otherPhone);
+                if (await canLaunchUrl(uri)) {
+                  await launchUrl(uri);
+                }
+              },
+              icon: const Icon(Icons.call_rounded, size: 20),
+            ),
+          if (_otherUserId != null)
+            IconButton(
+              onPressed: () => context.push('/seller/$_otherUserId'),
+              icon: const Icon(Icons.person_rounded, size: 20),
+            ),
+        ],
       ),
       body: Column(
         children: [
           Expanded(
             child: messagesAsync.when(
               data: (messages) {
-                // Combine the live stream (new messages) with anything we paginated historically
-                // Only take the paginated ones that aren't already in the live feed.
                 if (_lastDoc == null && messages.isNotEmpty) {
                   _lastDoc = messages.last.docRef;
                 }
@@ -328,11 +383,10 @@ class _ItemContextCardLoader extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return FutureBuilder<WavyItem>(
-      future: ref.read(apiServiceProvider).getItem(itemId),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) return const SizedBox.shrink();
-        final item = snapshot.data!;
+    final itemAsync = ref.watch(itemProvider(itemId));
+    
+    return itemAsync.when(
+      data: (item) {
         return Container(
           margin: const EdgeInsets.only(bottom: 16),
           padding: const EdgeInsets.all(8),
@@ -346,7 +400,7 @@ class _ItemContextCardLoader extends ConsumerWidget {
               ClipRRect(
                 borderRadius: BorderRadius.circular(4),
                 child: CachedNetworkImage(
-                  imageUrl: item.images.isNotEmpty ? item.images.first : '',
+                  imageUrl: item.thumbnailUrl ?? (item.images.isNotEmpty ? item.images.first : ''),
                   width: 50,
                   height: 50,
                   fit: BoxFit.cover,
@@ -380,6 +434,8 @@ class _ItemContextCardLoader extends ConsumerWidget {
           ),
         );
       },
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
     );
   }
 }

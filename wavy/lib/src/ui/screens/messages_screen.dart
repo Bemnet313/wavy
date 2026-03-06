@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../models/models.dart';
 import '../../providers/providers.dart';
 import '../theme/app_theme.dart';
 
@@ -56,72 +57,7 @@ class MessagesScreen extends ConsumerWidget {
               indent: 80,
             ),
             itemBuilder: (context, index) {
-              final chat = conversations[index];
-              final lastMsg = chat.lastMessage;
-              
-              // TODO: Fetch other participant's name for display
-              // final currentUserId = ref.read(authProvider).fbUser?.uid;
-              // final otherId = chat.participants.firstWhere((p) => p != currentUserId, orElse: () => 'unknown');
-
-              return Dismissible(
-                key: Key(chat.id),
-                direction: DismissDirection.endToStart,
-                background: Container(
-                  alignment: Alignment.centerRight,
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  color: Colors.red.withValues(alpha: 0.2),
-                  child: const Icon(Icons.delete_outline, color: Colors.red),
-                ),
-                onDismissed: (direction) async {
-                  // Actually delete the conversation
-                  await ref.read(apiServiceProvider).deleteConversation(chat.id);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Conversation deleted')),
-                    );
-                  }
-                },
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  onTap: () => context.push('/chat/${chat.id}'),
-                  leading: CircleAvatar(
-                    radius: 28,
-                    backgroundColor: WavyTheme.surfaceDark,
-                    child: const Icon(Icons.person_outline_rounded, color: Colors.white24),
-                  ),
-                  title: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'CHAT WITH SELLER', // In future fetch seller name
-                          style: GoogleFonts.spaceGrotesk(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 14,
-                            letterSpacing: 0.5,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                      Text(
-                        chat.updatedAt.split('T').first, // Simple date
-                        style: GoogleFonts.spaceGrotesk(
-                          fontSize: 10,
-                          color: WavyTheme.textDarkSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  subtitle: Text(
-                    lastMsg?.text ?? 'No messages yet',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.spaceGrotesk(
-                      fontSize: 13,
-                      color: WavyTheme.textDarkSecondary,
-                    ),
-                  ),
-                ),
-              );
+              return _ConversationTile(chat: conversations[index]);
             },
           );
         },
@@ -131,3 +67,82 @@ class MessagesScreen extends ConsumerWidget {
     );
   }
 }
+
+class _ConversationTile extends ConsumerWidget {
+  final ChatConversation chat;
+
+  const _ConversationTile({required this.chat});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final currentUserId = ref.read(authProvider).fbUser?.uid;
+    final otherId = chat.participants.firstWhere((p) => p != currentUserId, orElse: () => '');
+    
+    // Fetch profile if we have an ID
+    final profileAsync = otherId.isNotEmpty ? ref.watch(userProfileProvider(otherId)) : const AsyncValue.data(null);
+    final sellerName = profileAsync.valueOrNull?.name ?? 'SELLER';
+    
+    final lastMsg = chat.lastMessage;
+
+    return Dismissible(
+      key: Key(chat.id),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        color: Colors.red.withValues(alpha: 0.2),
+        child: const Icon(Icons.delete_outline, color: Colors.red),
+      ),
+      onDismissed: (direction) async {
+        // Actually delete the conversation
+        await ref.read(apiServiceProvider).deleteConversation(chat.id);
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Conversation deleted')),
+          );
+        }
+      },
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        onTap: () => context.push('/chat/${chat.id}'),
+        leading: CircleAvatar(
+          radius: 28,
+          backgroundColor: WavyTheme.surfaceDark,
+          child: const Icon(Icons.person_outline_rounded, color: Colors.white24),
+        ),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                sellerName.toUpperCase(),
+                style: GoogleFonts.spaceGrotesk(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                  letterSpacing: 0.5,
+                  color: Colors.white,
+                ).copyWith(fontFamilyFallback: const ['Noto Sans Ethiopic']),
+              ),
+            ),
+            Text(
+              chat.updatedAt.split('T').first, // Simple date
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 10,
+                color: WavyTheme.textDarkSecondary,
+              ),
+            ),
+          ],
+        ),
+        subtitle: Text(
+          lastMsg?.text ?? 'No messages yet',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: GoogleFonts.spaceGrotesk(
+            fontSize: 13,
+            color: WavyTheme.textDarkSecondary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+

@@ -1,0 +1,166 @@
+WAVY SMOKE-TESTING CHECKLIST
+=============================
+Date: 2026-03-04
+Tester: _______________
+Build: _______________
+Device: _______________
+
+
+PRE-REQUISITES
+--------------
+[ ] App installed on physical device (Android or iOS)
+[ ] Firebase project "another-monday" accessible
+[ ] Test phone number configured in Firebase Auth console
+[ ] Internet connection active
+
+
+1. ONBOARDING FLOW
+------------------
+[ ] 1.1  Launch app → Splash screen appears with Wavy logo
+[ ] 1.2  Tap to continue → Language selection screen appears
+[ ] 1.3  Select "English" → Navigates to Sign-In screen
+[ ] 1.4  Verify Sign-In screen has: Email field, Password field, Sign-In button, Google Sign-In button
+[ ] 1.5  Tap "Don't have an account?" → Navigates to Sign-Up screen
+[ ] 1.6  Fill email, phone number, password → Tap "Sign Up"
+[ ] 1.7  Verify: Account created, navigates to Phone screen (or Preferences if already verified)
+[ ] 1.8  Enter phone number → Receive OTP
+[ ] 1.9  Enter OTP → Verify code accepted
+[ ] 1.10 Preferences screen appears: Enter name, select role, gender, age
+[ ] 1.11 Tap "Complete" → Navigates to main app (Feed screen)
+[ ] 1.12 Verify: User document created in Firestore users/{uid} with all fields
+
+
+2. GOOGLE SIGN-IN
+-----------------
+[ ] 2.1  From Sign-In screen, tap Google Sign-In button
+[ ] 2.2  Google account picker appears
+[ ] 2.3  Select account → Signs in successfully
+[ ] 2.4  If new user: Navigates to Preferences screen
+[ ] 2.5  If returning user: Navigates to Feed screen
+[ ] 2.6  Verify: Firebase Auth shows Google provider linked
+
+
+3. FEED & SWIPING
+-----------------
+[ ] 3.1  Feed screen loads with card stack
+[ ] 3.2  First-time user sees tutorial card ("SWIPE RIGHT TO SAVE")
+[ ] 3.3  Swipe tutorial card away → Tutorial dismissed, normal cards appear
+[ ] 3.4  Swipe RIGHT on an item → Item saved (verify in Saved tab)
+[ ] 3.5  Swipe LEFT on an item → Item passed (not in Saved tab)
+[ ] 3.6  Tap UNDO button → Previous card restored
+[ ] 3.7  Tap INFO button → Navigates to Item Detail screen
+[ ] 3.8  Tap HEART button → Triggers right swipe (saves item)
+[ ] 3.9  Tap FILTER icon → Filter modal opens
+[ ] 3.10 Select filters (Gender, Size, Category) → Tap "APPLY FILTERS"
+[ ] 3.11 Feed refreshes with filtered results
+[ ] 3.12 Swipe through all cards → "ALL CAUGHT UP" message appears
+[ ] 3.13 Tap "RELOAD FEED" → Feed reloads
+
+
+4. ITEM DETAIL
+--------------
+[ ] 4.1  Tap on an item card → Item Detail screen opens
+[ ] 4.2  Verify: Image gallery, title, price (ETB), size, condition, category, view count displayed
+[ ] 4.3  Swipe through multiple item images (if available)
+[ ] 4.4  Tap image → Full-screen gallery opens
+[ ] 4.5  Tap HEART icon in app bar → Item saved
+[ ] 4.6  Verify "CURATED BY" section shows seller name and rating
+[ ] 4.7  Tap seller section → Navigates to Seller profile
+[ ] 4.8  Tap "GET THE FIT" button → Seller phone number revealed
+[ ] 4.9  Verify: Phone number displayed with call button
+[ ] 4.10 Tap "CALL SELLER" → [KNOWN BUG: No-op, expected to fail]
+[ ] 4.11 Tap "MESSAGE" → Chat screen opens with seller
+[ ] 4.12 Tap SHARE icon → Share modal opens with social apps and copy link
+
+
+5. SAVED ITEMS
+--------------
+[ ] 5.1  Navigate to Saved tab
+[ ] 5.2  Verify: Previously saved items appear in list
+[ ] 5.3  Tap an item → Navigates to Item Detail screen
+[ ] 5.4  Swipe to delete an item → Item removed from saved list
+[ ] 5.5  Close app and reopen → Saved items persist (Firestore + Hive)
+[ ] 5.6  Save 50 items → Verify "LIMIT REACHED" dialog appears on 51st
+
+
+6. LISTING CREATION (SELL)
+--------------------------
+[ ] 6.1  Navigate to Sell tab
+[ ] 6.2  Verify: Image picker, title, price, size, condition, category fields present
+[ ] 6.3  Tap "Add images" → Image picker opens
+[ ] 6.4  Select 1-5 images (each < 10MB)
+[ ] 6.5  Fill all fields: title, price (50-25000 ETB), size, condition, category
+[ ] 6.6  If NOT phone-verified: Tap "PUBLISH" → Redirected to Phone/OTP flow
+[ ] 6.7  After verification: Tap "PUBLISH" → Item published
+[ ] 6.8  Verify: Item appears in Firestore items collection
+[ ] 6.9  Verify: Images uploaded to Firebase Storage items/{sellerId}/
+[ ] 6.10 Try price < 50 ETB → Validation error shown
+[ ] 6.11 Try price > 25000 ETB → Validation error shown
+[ ] 6.12 Try > 5 images → "Max 5 images" error shown
+[ ] 6.13 Try image > 10MB → Size limit error shown
+
+
+7. MESSAGING
+------------
+[ ] 7.1  Navigate to Messages tab
+[ ] 7.2  If no conversations: "NO CONVERSATIONS YET" message shown
+[ ] 7.3  Start a conversation from Item Detail → Chat screen opens
+[ ] 7.4  Type a message → Tap send → Message appears in chat
+[ ] 7.5  Message appears in real-time for both participants
+[ ] 7.6  Send message with item attachment → Item context card shown
+[ ] 7.7  Navigate away and return → Messages persist
+[ ] 7.8  Scroll up → Pagination loads older messages
+[ ] 7.9  From Messages list, swipe left to delete conversation
+[ ] 7.10 Verify: Conversation removed from list
+
+
+8. PROFILE
+----------
+[ ] 8.1  Navigate to Profile tab
+[ ] 8.2  Verify: User name, phone number, verification badge displayed
+[ ] 8.3  Verify: SAVED count matches actual saved items
+[ ] 8.4  [KNOWN BUG: LISTS count always shows 0]
+[ ] 8.5  [KNOWN BUG: DAYS STREAK always shows 16]
+[ ] 8.6  Tap "SELLER DASHBOARD" → Navigates to seller profile
+[ ] 8.7  Toggle Language switch → App language changes (English ↔ Amharic)
+[ ] 8.8  Verify: All text on screen updates to selected language
+[ ] 8.9  Tap "TERMINATE SESSION" → User logged out, redirected to Splash
+
+
+9. SECURITY SPOT-CHECKS
+------------------------
+[ ] 9.1  As User A, try to read User B's document → Should be denied
+[ ] 9.2  As User A, try to modify User B's listing → Should be denied
+[ ] 9.3  [KNOWN BUG: As User A, try to DELETE User B's listing → Currently ALLOWED]
+[ ] 9.4  As unauthenticated user, try to read feed items → Should be denied
+[ ] 9.5  Upload file > 10MB to Storage → Should be denied
+[ ] 9.6  Upload non-image file to Storage → Should be denied
+
+
+10. ERROR HANDLING
+------------------
+[ ] 10.1 Disable internet → Feed shows error state with RETRY button
+[ ] 10.2 Tap RETRY with internet restored → Feed reloads
+[ ] 10.3 Sign in with wrong password → Error SnackBar shown
+[ ] 10.4 Sign up with existing email → Error SnackBar shown
+[ ] 10.5 Enter invalid OTP → Error message shown
+
+
+NOTES
+-----
+Known bugs to verify still exist (from audit):
+- C1: Phone screen accessible from Sign-In as login method
+- C2: Any user can delete any listing via Firestore
+- C3: Rate-limiting Cloud Functions not deployed
+- H2: CALL SELLER button does nothing
+- M2: DAYS STREAK is hardcoded to 16
+- M3: LISTS count is hardcoded to 0
+
+Additional observations:
+________________________________________
+________________________________________
+________________________________________
+________________________________________
+
+Tester signature: _______________
+Date completed: _______________

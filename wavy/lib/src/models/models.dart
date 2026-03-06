@@ -9,6 +9,7 @@ class WavyItem {
   final String size;
   final String condition;
   final List<String> images;
+  final String? thumbnailUrl;
   final String sellerId;
   final String tagId;
   final String status;
@@ -26,6 +27,7 @@ class WavyItem {
     required this.size,
     required this.condition,
     required this.images,
+    this.thumbnailUrl,
     required this.sellerId,
     required this.tagId,
     this.status = 'active',
@@ -53,6 +55,7 @@ class WavyItem {
       size: json['size'] as String,
       condition: json['condition'] as String,
       images: (json['images'] as List<dynamic>?)?.cast<String>() ?? [],
+      thumbnailUrl: json['thumbnail_url'] as String?,
       sellerId: json['seller_id'] as String,
       tagId: json['tag_id'] as String,
       status: json['status'] as String? ?? 'active',
@@ -72,6 +75,7 @@ class WavyItem {
         'size': size,
         'condition': condition,
         'images': images,
+        'thumbnail_url': thumbnailUrl,
         'seller_id': sellerId,
         'tag_id': tagId,
         'status': status,
@@ -90,6 +94,7 @@ class WavyItem {
     String? size,
     String? condition,
     List<String>? images,
+    String? thumbnailUrl,
     String? sellerId,
     String? tagId,
     String? status,
@@ -107,6 +112,7 @@ class WavyItem {
       size: size ?? this.size,
       condition: condition ?? this.condition,
       images: images ?? this.images,
+      thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,
       sellerId: sellerId ?? this.sellerId,
       tagId: tagId ?? this.tagId,
       status: status ?? this.status,
@@ -191,9 +197,13 @@ class WavyUser {
     return WavyUser(
       id: json['id'] as String,
       phone: json['phone'] as String,
-      name: json['name'] as String?,
+      name: (json['fullName'] ?? json['name']) as String?,
       preferences: UserPreferences.fromJson(
-          json['preferences'] as Map<String, dynamic>? ?? {}),
+          json['preferences'] as Map<String, dynamic>? ?? {
+            'gender': json['gender'],
+            'age': json['age'],
+            'role': json['role'],
+          }),
       language: json['language'] as String? ?? 'en',
       savedItems:
           (json['saved_items'] as List<dynamic>?)?.cast<String>() ?? [],
@@ -204,11 +214,15 @@ class WavyUser {
   Map<String, dynamic> toJson() => {
         'id': id,
         'phone': phone,
-        'name': name,
-        'preferences': preferences.toJson(),
+        'fullName': name,
+        'role': preferences.role,
+        'gender': preferences.gender,
+        'age': preferences.age,
         'language': language,
         'saved_items': savedItems,
         'fcm_token': fcmToken,
+        'createdAt': FieldValue.serverTimestamp(),
+        'preferences': preferences.toJson(), // Keeping this for backward compatibility with existing code
       };
 
   WavyUser copyWith({
@@ -238,6 +252,7 @@ class UserPreferences {
   final List<String> styles;
   final int? age;
   final bool hasSeenTutorial;
+  final String? role;
 
   const UserPreferences({
     this.gender = '',
@@ -245,6 +260,7 @@ class UserPreferences {
     this.styles = const [],
     this.age,
     this.hasSeenTutorial = false,
+    this.role,
   });
 
   factory UserPreferences.fromJson(Map<String, dynamic> json) {
@@ -254,6 +270,7 @@ class UserPreferences {
       styles: (json['styles'] as List<dynamic>?)?.cast<String>() ?? [],
       age: json['age'] as int?,
       hasSeenTutorial: json['has_seen_tutorial'] as bool? ?? false,
+      role: json['role'] as String?,
     );
   }
 
@@ -263,48 +280,69 @@ class UserPreferences {
         'styles': styles,
         if (age != null) 'age': age,
         'has_seen_tutorial': hasSeenTutorial,
+        'role': role,
       };
+
+  UserPreferences copyWith({
+    String? gender,
+    List<String>? sizes,
+    List<String>? styles,
+    int? age,
+    bool? hasSeenTutorial,
+  }) {
+    return UserPreferences(
+      gender: gender ?? this.gender,
+      sizes: sizes ?? this.sizes,
+      styles: styles ?? this.styles,
+      age: age ?? this.age,
+      hasSeenTutorial: hasSeenTutorial ?? this.hasSeenTutorial,
+    );
+  }
 }
 
 class WavyEvent {
   final String? id;
   final String userId;
-  final String itemId;
-  final String type; // swipe_event, interest_event, call_event, mark_sold, purchase_confirmed
+  final String? itemId;
+  final String type; // swipe_event, interest_event, call_event, mark_sold, purchase_confirmed, user_login, etc.
   final String action;
   final String timestamp;
   final bool synced;
+  final Map<String, dynamic>? metadata;
 
   const WavyEvent({
     this.id,
     required this.userId,
-    required this.itemId,
+    this.itemId,
     required this.type,
     required this.action,
     required this.timestamp,
     this.synced = false,
+    this.metadata,
   });
 
   factory WavyEvent.fromJson(Map<String, dynamic> json) {
     return WavyEvent(
       id: json['id'] as String?,
       userId: json['user_id'] as String,
-      itemId: json['item_id'] as String,
+      itemId: json['item_id'] as String?,
       type: json['type'] as String,
       action: json['action'] as String,
       timestamp: json['timestamp'] as String,
       synced: json['synced'] as bool? ?? false,
+      metadata: json['metadata'] as Map<String, dynamic>?,
     );
   }
 
   Map<String, dynamic> toJson() => {
         if (id != null) 'id': id,
         'user_id': userId,
-        'item_id': itemId,
+        if (itemId != null) 'item_id': itemId,
         'type': type,
         'action': action,
         'timestamp': timestamp,
         'synced': synced,
+        if (metadata != null) 'metadata': metadata,
       };
 }
 

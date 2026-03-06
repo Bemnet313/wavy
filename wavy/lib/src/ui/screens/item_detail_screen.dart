@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
+import '../../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-
+import 'package:url_launcher/url_launcher.dart';
 class ItemDetailScreen extends ConsumerStatefulWidget {
   final String itemId;
   const ItemDetailScreen({super.key, required this.itemId});
@@ -36,7 +38,16 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
     try {
       final api = ref.read(apiServiceProvider);
       final item = await api.getItem(widget.itemId);
-      final sellerResponse = await api.getSeller(item.sellerId);
+      var sellerResponse = await api.getSeller(item.sellerId);
+
+      // Fallback: if no seller doc exists, create a minimal one so the UI doesn't break
+      sellerResponse ??= Seller(
+        id: item.sellerId,
+        name: 'Wavy User',
+        phone: null,
+        market: 'Individual Seller',
+        address: 'Addis Ababa',
+      );
 
       if (mounted) {
         setState(() {
@@ -99,7 +110,17 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
   }
 
   void _logEvent(String eventName, Map<String, dynamic> params) {
-    debugPrint('WavyLogger: $eventName $params');
+    final userId = ref.read(authProvider).fbUser?.uid;
+    if (userId != null) {
+      ref.read(apiServiceProvider).logEvent(WavyEvent(
+        userId: userId,
+        itemId: params['item_id'] as String?,
+        type: eventName,
+        action: eventName,
+        timestamp: DateTime.now().toUtc().toIso8601String(),
+        metadata: params,
+      ));
+    }
   }
 
   void _showShareModal(BuildContext context, String itemId) {
@@ -139,7 +160,7 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
       );
     }
 
-    if (_error != null || _item == null || _seller == null) {
+    if (_error != null || _item == null) {
       return Scaffold(
         backgroundColor: Colors.black,
         body: Center(
@@ -159,6 +180,8 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
 
     final item = _item!;
     final seller = _seller!;
+    final currentUserId = ref.read(authProvider).fbUser?.uid;
+    final isOwner = currentUserId != null && currentUserId == item.sellerId;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -510,19 +533,98 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                     const SizedBox(height: 24),
                   ],
 
-                  // Action Buttons
-                  if (!_showSellerInfo)
+                  // Action Buttons — Owner vs Buyer
+                  if (isOwner)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SizedBox(
+                            height: 64,
+                            child: OutlinedButton.icon(
+                              onPressed: () => context.push('/edit-listing/${item.id}'),
+                              icon: const Icon(Icons.edit_rounded, size: 18),
+                              label: Text(
+                                'EDIT',
+                                style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 1),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: Colors.white),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: SizedBox(
+                            height: 64,
+                            child: ElevatedButton.icon(
+                              onPressed: () async {
+                                final confirm = await showDialog<bool>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    backgroundColor: Colors.black,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(16),
+                                      side: const BorderSide(color: Colors.redAccent, width: 2),
+                                    ),
+                                    title: Text('DELETE LISTING?', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w900)),
+                                    content: Text('This action cannot be undone.', style: GoogleFonts.spaceGrotesk(color: Colors.white70)),
+                                    actions: [
+                                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('CANCEL', style: GoogleFonts.spaceGrotesk(color: Colors.white54))),
+                                      TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text('DELETE', style: GoogleFonts.spaceGrotesk(color: Colors.redAccent, fontWeight: FontWeight.bold))),
+                                    ],
+                                  ),
+                                );
+                                if (confirm != true || !mounted) return;
+                                String? deleteError;
+                                try {
+                                  await ref.read(apiServiceProvider).deleteItem(item.id);
+                                  ref.invalidate(feedProvider);
+                                } catch (e) {
+                                  deleteError = e.toString();
+                                }
+                                if (!mounted) return;
+                                if (deleteError != null) {
+                                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Delete failed: $deleteError')));
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('LISTING DELETED')));
+                                  context.pop();
+                                }
+                              },
+                              icon: const Icon(Icons.delete_rounded, size: 18),
+                              label: Text(
+                                'DELETE',
+                                style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 1),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.redAccent,
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  else if (!_showSellerInfo)
                     SizedBox(
                       width: double.infinity,
                       height: 64,
                       child: ElevatedButton(
-                        onPressed: () => setState(() => _showSellerInfo = true),
+                        onPressed: () {
+                          setState(() => _showSellerInfo = true);
+                          _logEvent('phone_reveal', {
+                            'item_id': item.id,
+                            'seller_id': seller.id,
+                          });
+                        },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.white,
                           foregroundColor: Colors.black,
                         ),
                         child: Text(
-                          (locale == 'am' ? 'እፈልጋለሁ!' : 'GET THE FIT'),
+                          (AppLocalizations.instance.tr('cta_get_the_fit')),
                         ),
                       ),
                     )
@@ -533,14 +635,30 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                           child: SizedBox(
                             height: 64,
                             child: OutlinedButton(
-                              onPressed: () {}, // dialer logic
+                              onPressed: () async {
+                                final phone = seller.phone;
+                                if (phone == null || phone.isEmpty) return;
+                                final Uri launchUri = Uri(
+                                  scheme: 'tel',
+                                  path: phone,
+                                );
+                                if (await canLaunchUrl(launchUri)) {
+                                  await launchUrl(launchUri);
+                                } else {
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Could not open dialer.')),
+                                    );
+                                  }
+                                }
+                              },
                               style: OutlinedButton.styleFrom(
                                 side: const BorderSide(color: Colors.white),
                                 foregroundColor: Colors.white,
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
                               ),
                               child: Text(
-                                (locale == 'am' ? 'ደውል' : 'CALL SELLER'),
+                                (AppLocalizations.instance.tr('cta_call_seller')),
                                 style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 1),
                               ),
                             ),
@@ -560,7 +678,7 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                                 foregroundColor: Colors.black,
                               ),
                               child: Text(
-                                (locale == 'am' ? 'መልዕክት' : 'MESSAGE'),
+                                (AppLocalizations.instance.tr('cta_message')),
                                 style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 1),
                               ),
                             ),
@@ -666,7 +784,7 @@ class _ShareBottomSheet extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.05),
+              color: Colors.white.withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: Colors.white10),
             ),
@@ -681,17 +799,21 @@ class _ShareBottomSheet extends StatelessWidget {
                 ),
                 const SizedBox(width: 16),
                 GestureDetector(
-                  onTap: () {
+                  onTap: () async {
                     onLog('share_copy_link', {'item_id': itemId});
-                    // Clipboard logic (mocked)
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('LINK COPIED TO CLIPBOARD'),
-                        duration: Duration(seconds: 1),
-                        backgroundColor: Colors.white,
-                      ),
-                    );
+                    await Clipboard.setData(ClipboardData(text: shareUrl));
+                    if (context.mounted) {
+                      Navigator.pop(context);
+                    }
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('LINK COPIED TO CLIPBOARD'),
+                          duration: Duration(seconds: 1),
+                          backgroundColor: Colors.white,
+                        ),
+                      );
+                    }
                   },
                   child: Text(
                     'COPY',
@@ -747,7 +869,7 @@ class _ShareIconState extends State<_ShareIcon> {
               height: 54,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: _isPressed ? Colors.white : Colors.white.withOpacity(0.05),
+                color: _isPressed ? Colors.white : Colors.white.withValues(alpha: 0.05),
                 border: Border.all(color: Colors.white24),
               ),
               child: Icon(widget.icon, color: _isPressed ? Colors.black : Colors.white, size: 24),
@@ -827,7 +949,7 @@ class _FullScreenGalleryState extends State<_FullScreenGallery> {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.5),
+                  color: Colors.black.withValues(alpha: 0.5),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
@@ -844,7 +966,7 @@ class _FullScreenGalleryState extends State<_FullScreenGallery> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.5),
+                    color: Colors.black.withValues(alpha: 0.5),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(

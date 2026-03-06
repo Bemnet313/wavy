@@ -90,7 +90,7 @@ class LanguageScreen extends ConsumerWidget {
                   width: double.infinity,
                   height: 60,
                   child: ElevatedButton(
-                    onPressed: () => context.go('/phone'),
+                    onPressed: () => context.go('/signin'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.white,
                       foregroundColor: Colors.black,

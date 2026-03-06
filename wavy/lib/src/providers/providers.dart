@@ -76,18 +76,35 @@ class AuthNotifier extends StateNotifier<AuthState> {
   void _initAuthListener() {
     _authSubscription = _api.authStateChanges.listen((fbUser) async {
       if (fbUser != null) {
+        final isPhoneVerified = fbUser.phoneNumber != null || 
+                               fbUser.providerData.any((p) => p.providerId == 'phone');
         state = state.copyWith(
           fbUser: fbUser,
-          isVerified: true,
+          isVerified: isPhoneVerified,
           isLoading: true,
         );
         
-        // Load user from Firestore
-        final user = await _api.getUser(fbUser.uid);
-        state = state.copyWith(
-          user: user,
-          isLoading: false,
-        );
+        // Load user from Firestore with timeout
+        try {
+          final user = await _api.getUser(fbUser.uid).timeout(
+            const Duration(seconds: 10),
+            onTimeout: () => null,
+          );
+          state = state.copyWith(
+            user: user,
+            isLoading: false,
+          );
+
+          // Sync local onboarding state for returning users
+          if (user != null) {
+            _ref.read(onboardingCompleteProvider.notifier).complete();
+          }
+        } catch (e) {
+          state = state.copyWith(
+            isLoading: false,
+            error: 'Failed to load profile: $e',
+          );
+        }
         
         // Persist local UID just in case
         _hive.saveUserId(fbUser.uid);
@@ -117,6 +134,48 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
+  Future<void> loginWithEmail(String email, String password) async {
+    state = state.copyWith(isLoading: true, error: null);
+    try {
+      await _api.checkAuthRateLimit();
+      await _api.signInWithEmail(email, password);
+    } catch (e) {
+      String message = e.toString().replaceFirst(RegExp(r'\[.*\] '), '');
+      if (message.contains('TOO_MANY_ATTEMPTS')) {
+        message = 'Too many attempts. Please try again in 1 minute.';
+      }
+      state = state.copyWith(isLoading: false, error: message);
+    }
+  }
+
+  Future<void> registerWithEmail(String email, String password) async {
+    state = state.copyWith(isLoading: true, error: null);
+    try {
+      await _api.checkAuthRateLimit();
+      await _api.signUpWithEmail(email, password);
+    } catch (e) {
+      String message = e.toString().replaceFirst(RegExp(r'\[.*\] '), '');
+      if (message.contains('TOO_MANY_ATTEMPTS')) {
+        message = 'Too many attempts. Please try again in 1 minute.';
+      }
+      state = state.copyWith(isLoading: false, error: message);
+    }
+  }
+
+  Future<void> loginWithGoogle() async {
+    state = state.copyWith(isLoading: true, error: null);
+    try {
+      await _api.checkAuthRateLimit();
+      await _api.signInWithGoogle();
+    } catch (e) {
+      String message = e.toString();
+      if (message.contains('TOO_MANY_ATTEMPTS')) {
+        message = 'Too many attempts. Please try again in 1 minute.';
+      }
+      state = state.copyWith(isLoading: false, error: message);
+    }
+  }
+
   Future<void> sendOtp(String phone) async {
     state = state.copyWith(isLoading: true, phone: phone, error: null);
     try {
@@ -129,7 +188,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
           state = state.copyWith(isLoading: false, error: e.message);
         },
         onVerificationCompleted: (credential) async {
-          await _api.signInWithCredential(credential);
+          // Auto-verification (Android only): link to existing account if signed in.
+          // We never sign in via phone — OTP is for linking only.
+          final fbUser = _ref.read(authProvider).fbUser;
+          if (fbUser != null) {
+            try {
+              await fbUser.linkWithCredential(credential);
+            } catch (_) {
+              // Already linked or other non-critical error — ignore.
+            }
+          }
         },
         onCodeAutoRetrievalTimeout: (verId) {
           state = state.copyWith(verificationId: verId);
@@ -152,11 +220,28 @@ class AuthNotifier extends StateNotifier<AuthState> {
         verificationId: state.verificationId!,
         smsCode: otp,
       );
-      await _api.signInWithCredential(credential);
-      // initAuthListener handles the rest
+      
+      if (state.fbUser != null) {
+        // Link phone credential to the existing signed-in account.
+        // This is the ONLY valid path — OTP is for verification, not sign-in.
+        await state.fbUser!.linkWithCredential(credential);
+      } else {
+        // Guard: user must be signed in before verifying phone.
+        // Direct phone-only sign-in is not permitted by product rules.
+        state = state.copyWith(
+          isLoading: false,
+          error: 'Please sign in with email or Google first.',
+        );
+        return false;
+      }
+      
       return true;
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: 'Invalid verification code');
+      String message = 'Invalid verification code';
+      if (e.toString().contains('credential-already-in-use')) {
+        message = 'This phone number is already linked to another account';
+      }
+      state = state.copyWith(isLoading: false, error: message);
       return false;
     }
   }
@@ -169,7 +254,51 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(phone: phone);
   }
 
+  Future<void> completeOnboarding({
+    required String fullName,
+    required String role,
+    required String gender,
+    required int age,
+    required String language,
+  }) async {
+    final fbUser = state.fbUser;
+    if (fbUser == null) return;
+
+    state = state.copyWith(isLoading: true);
+    try {
+      // 1. Update Firebase display name
+      await fbUser.updateDisplayName(fullName);
+
+      // 2. Build WavyUser object
+      final newUser = WavyUser(
+        id: fbUser.uid,
+        phone: fbUser.phoneNumber ?? state.phone ?? '',
+        name: fullName,
+        language: language,
+        preferences: UserPreferences(
+          gender: gender,
+          age: age,
+          role: role,
+          hasSeenTutorial: false,
+        ),
+      );
+
+      // 3. Persist to Firestore
+      await _api.createUser(newUser);
+
+      // 4. Update state
+      state = state.copyWith(user: newUser, isLoading: false);
+      
+      // 5. Trigger navigation-ready state
+      _ref.read(onboardingCompleteProvider.notifier).complete();
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toString());
+      rethrow;
+    }
+  }
+
   void logout() async {
+    state = state.copyWith(isLoading: true);
     await _api.signOut();
     _hive.clearAuth();
     state = const AuthState();
@@ -193,6 +322,10 @@ class FeedState {
   final String? gender;
   final String? category;
   final List<String>? sizes;
+  final int? minPrice;
+  final int? maxPrice;
+  final int currentIndex;
+  final bool canUndo;
 
   const FeedState({
     this.items = const [],
@@ -202,6 +335,10 @@ class FeedState {
     this.gender,
     this.category,
     this.sizes,
+    this.minPrice,
+    this.maxPrice,
+    this.currentIndex = 0,
+    this.canUndo = false,
   });
 
   FeedState copyWith({
@@ -212,6 +349,10 @@ class FeedState {
     String? gender,
     String? category,
     List<String>? sizes,
+    int? minPrice,
+    int? maxPrice,
+    int? currentIndex,
+    bool? canUndo,
   }) {
     return FeedState(
       items: items ?? this.items,
@@ -221,6 +362,10 @@ class FeedState {
       gender: gender ?? this.gender,
       category: category ?? this.category,
       sizes: sizes ?? this.sizes,
+      minPrice: minPrice ?? this.minPrice,
+      maxPrice: maxPrice ?? this.maxPrice,
+      currentIndex: currentIndex ?? this.currentIndex,
+      canUndo: canUndo ?? this.canUndo,
     );
   }
 }
@@ -230,21 +375,34 @@ class FeedNotifier extends StateNotifier<FeedState> {
 
   FeedNotifier(this._api) : super(const FeedState());
 
-  Future<void> loadFeed({String? gender, String? category, List<String>? sizes}) async {
+  Future<void> loadFeed({
+    String? gender,
+    String? category,
+    List<String>? sizes,
+    int? minPrice,
+    int? maxPrice,
+    bool clearFilters = false,
+  }) async {
     if (state.isLoading) return;
     state = state.copyWith(
-      isLoading: true, 
-      error: null, 
-      gender: gender, 
-      category: category, 
-      sizes: sizes
+      isLoading: true,
+      error: null,
+      gender: clearFilters ? null : (gender ?? state.gender),
+      category: clearFilters ? null : (category ?? state.category),
+      sizes: clearFilters ? null : (sizes ?? state.sizes),
+      minPrice: clearFilters ? null : (minPrice ?? state.minPrice),
+      maxPrice: clearFilters ? null : (maxPrice ?? state.maxPrice),
+      currentIndex: 0,
+      canUndo: false,
     );
     try {
       final items = await _api.getFeed(
         limit: 20,
-        gender: state.gender,
-        category: state.category,
-        sizes: state.sizes,
+        gender: clearFilters ? null : state.gender,
+        category: clearFilters ? null : state.category,
+        sizes: clearFilters ? null : state.sizes,
+        minPrice: clearFilters ? null : state.minPrice,
+        maxPrice: clearFilters ? null : state.maxPrice,
       );
       state = state.copyWith(items: items, isLoading: false, currentPage: 1);
     } catch (e) {
@@ -259,11 +417,13 @@ class FeedNotifier extends StateNotifier<FeedState> {
       final nextPage = state.currentPage + 1;
       final startAfterId = state.items.isNotEmpty ? state.items.last.id : null;
       final items = await _api.getFeed(
-        limit: 20, 
+        limit: 20,
         startAfterId: startAfterId,
         gender: state.gender,
         category: state.category,
         sizes: state.sizes,
+        minPrice: state.minPrice,
+        maxPrice: state.maxPrice,
       );
       state = state.copyWith(
         items: [...state.items, ...items],
@@ -279,6 +439,14 @@ class FeedNotifier extends StateNotifier<FeedState> {
     state = state.copyWith(
       items: state.items.where((i) => i.id != itemId).toList(),
     );
+  }
+
+  void setCurrentIndex(int index) {
+    state = state.copyWith(currentIndex: index);
+  }
+
+  void setCanUndo(bool value) {
+    state = state.copyWith(canUndo: value);
   }
 
   Future<void> recordSwipe(String itemId, String userId, String action) async {
@@ -433,7 +601,12 @@ class PreferencesNotifier extends StateNotifier<UserPreferences> {
 
   void setAge(int age) {
     state = UserPreferences(
-        gender: state.gender, sizes: state.sizes, styles: state.styles, age: age, hasSeenTutorial: state.hasSeenTutorial);
+        gender: state.gender, sizes: state.sizes, styles: state.styles, age: age, hasSeenTutorial: state.hasSeenTutorial, role: state.role);
+  }
+
+  void setRole(String role) {
+    state = UserPreferences(
+        gender: state.gender, sizes: state.sizes, styles: state.styles, age: state.age, hasSeenTutorial: state.hasSeenTutorial, role: role);
   }
 
   void toggleSize(String size) {
@@ -460,33 +633,117 @@ class PreferencesNotifier extends StateNotifier<UserPreferences> {
 }
 
 // ─── Chat Providers ───────────────────────────────────────
-final conversationsProvider = StreamProvider<List<ChatConversation>>((ref) {
+final conversationsProvider = StreamProvider.autoDispose<List<ChatConversation>>((ref) {
   final userId = ref.watch(authProvider).fbUser?.uid;
   if (userId == null) return Stream.value([]);
   return ref.watch(apiServiceProvider).getConversations(userId);
 });
 
-final messagesProvider = StreamProvider.family<List<ChatMessage>, String>((ref, conversationId) {
+final messagesProvider = StreamProvider.autoDispose.family<List<ChatMessage>, String>((ref, conversationId) {
   return ref.watch(apiServiceProvider).getMessages(conversationId);
 });
 
-final sellerListingsProvider = FutureProvider.family<List<WavyItem>, String>((ref, sellerId) {
+final sellerListingsProvider = FutureProvider.autoDispose.family<List<WavyItem>, String>((ref, sellerId) {
   return ref.watch(apiServiceProvider).getSellerListings(sellerId);
+});
+
+final userProfileProvider = FutureProvider.autoDispose.family<WavyUser?, String>((ref, userId) {
+  return ref.watch(apiServiceProvider).getUser(userId);
+});
+
+final itemProvider = FutureProvider.autoDispose.family<WavyItem, String>((ref, itemId) {
+  return ref.watch(apiServiceProvider).getItem(itemId);
 });
 
 // ─── Locale Provider ───────────────────────────────────────
 final localeProvider = StateNotifierProvider<LocaleNotifier, String>((ref) {
-  return LocaleNotifier();
+  final hive = ref.watch(hiveServiceProvider);
+  return LocaleNotifier(hive);
 });
 
 class LocaleNotifier extends StateNotifier<String> {
-  LocaleNotifier() : super('en');
+  final HiveService _hive;
+  LocaleNotifier(this._hive) : super(_hive.getLocale());
 
   Future<void> setLocale(String locale) async {
     await AppLocalizations.load(locale);
+    await _hive.setLocale(locale);
     state = locale;
   }
 }
 
-// ─── Onboarding complete provider ──────────────────────────
-final onboardingCompleteProvider = StateProvider<bool>((ref) => false);
+// ─── Onboarding complete provider (persisted to Hive) ──────
+class OnboardingNotifier extends StateNotifier<bool> {
+  final HiveService _hive;
+  OnboardingNotifier(this._hive) : super(_hive.getOnboardingComplete());
+
+  void complete() {
+    _hive.setOnboardingComplete(true);
+    state = true;
+  }
+
+  void reset() {
+    _hive.setOnboardingComplete(false);
+    state = false;
+  }
+}
+
+final onboardingCompleteProvider =
+    StateNotifierProvider<OnboardingNotifier, bool>((ref) {
+  return OnboardingNotifier(ref.watch(hiveServiceProvider));
+});
+
+// ─── Sell Draft Provider (persists form state across tab switches) ─
+class SellDraftState {
+  final String title;
+  final String price;
+  final String size;
+  final String condition;
+  final List<String> imagePaths;
+
+  const SellDraftState({
+    this.title = '',
+    this.price = '',
+    this.size = 'M',
+    this.condition = 'Good',
+    this.imagePaths = const [],
+  });
+
+  SellDraftState copyWith({
+    String? title,
+    String? price,
+    String? size,
+    String? condition,
+    List<String>? imagePaths,
+  }) {
+    return SellDraftState(
+      title: title ?? this.title,
+      price: price ?? this.price,
+      size: size ?? this.size,
+      condition: condition ?? this.condition,
+      imagePaths: imagePaths ?? this.imagePaths,
+    );
+  }
+}
+
+class SellDraftNotifier extends StateNotifier<SellDraftState> {
+  SellDraftNotifier() : super(const SellDraftState());
+
+  void updateTitle(String v) => state = state.copyWith(title: v);
+  void updatePrice(String v) => state = state.copyWith(price: v);
+  void updateSize(String v) => state = state.copyWith(size: v);
+  void updateCondition(String v) => state = state.copyWith(condition: v);
+  void addImage(String path) =>
+      state = state.copyWith(imagePaths: [...state.imagePaths, path]);
+  void removeImage(int index) {
+    final paths = List<String>.from(state.imagePaths);
+    paths.removeAt(index);
+    state = state.copyWith(imagePaths: paths);
+  }
+  void clear() => state = const SellDraftState();
+}
+
+final sellDraftProvider =
+    StateNotifierProvider<SellDraftNotifier, SellDraftState>((ref) {
+  return SellDraftNotifier();
+});

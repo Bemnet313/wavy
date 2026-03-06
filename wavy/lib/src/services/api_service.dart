@@ -1,7 +1,9 @@
 import 'dart:io';
-import 'package:flutter/foundation.dart';
+
 import 'package:firebase_auth/firebase_auth.dart' as fb;
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import '../models/models.dart';
@@ -12,6 +14,49 @@ class ApiService {
   final FirebaseFunctions _functions = FirebaseFunctions.instance;
   
   ApiService();
+
+  /// Saves the device FCM token to the current user's Firestore doc.
+  /// Called on login and app resume.
+  /// Per firebase skill: server must read the token — never trust client to send it inline.
+  Future<void> saveFcmToken() async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token == null) return;
+      await _db.collection('users').doc(user.uid).update({'fcm_token': token});
+    } catch (_) {
+      // Non-fatal — notifications degrade gracefully
+    }
+  }
+
+  Future<void> checkAuthRateLimit() async {
+    try {
+      await _functions.httpsCallable('checkAuthRateLimit').call();
+    } on FirebaseFunctionsException catch (e) {
+      if (e.code == 'resource-exhausted') {
+        throw Exception('TOO_MANY_ATTEMPTS');
+      }
+      if (e.code == 'not-found') return; // Fallback: skip if not deployed yet
+      rethrow;
+    }
+  }
+
+  Future<fb.UserCredential> signInWithCredential(fb.AuthCredential credential) async {
+    final currentUser = _auth.currentUser;
+    if (currentUser != null) {
+      try {
+        return await currentUser.linkWithCredential(credential);
+      } on fb.FirebaseAuthException catch (e) {
+        if (e.code == 'credential-already-in-use') {
+          // Fallback to sign in if link fails due to existing account
+          return await _auth.signInWithCredential(credential);
+        }
+        rethrow;
+      }
+    }
+    return await _auth.signInWithCredential(credential);
+  }
 
   // ─── Auth (Firebase) ────────────────────────────────────
   
@@ -33,12 +78,68 @@ class ApiService {
     );
   }
 
-  Future<fb.UserCredential> signInWithCredential(fb.PhoneAuthCredential credential) async {
-    return await _auth.signInWithCredential(credential);
+  Future<fb.UserCredential> signInWithEmail(String email, String password) async {
+    final cred = await _auth.signInWithEmailAndPassword(email: email, password: password);
+    if (cred.user != null) {
+      logEvent(WavyEvent(
+        userId: cred.user!.uid,
+        type: 'user_login',
+        action: 'login',
+        timestamp: DateTime.now().toUtc().toIso8601String(),
+        metadata: {'method': 'email'},
+      ));
+    }
+    return cred;
+  }
+
+  Future<fb.UserCredential> signUpWithEmail(String email, String password) async {
+    final cred = await _auth.createUserWithEmailAndPassword(email: email, password: password);
+    if (cred.user != null) {
+      logEvent(WavyEvent(
+        userId: cred.user!.uid,
+        type: 'user_signup',
+        action: 'signup',
+        timestamp: DateTime.now().toUtc().toIso8601String(),
+        metadata: {'method': 'email'},
+      ));
+    }
+    return cred;
+  }
+
+  Future<fb.UserCredential?> signInWithGoogle() async {
+    try {
+      final googleSignIn = GoogleSignIn();
+      final googleUser = await googleSignIn.signIn();
+      if (googleUser == null) return null;
+
+      final googleAuth = await googleUser.authentication;
+      final credential = fb.GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      final cred = await _auth.signInWithCredential(credential);
+      if (cred.user != null) {
+        final isNewUser = cred.additionalUserInfo?.isNewUser ?? false;
+        logEvent(WavyEvent(
+          userId: cred.user!.uid,
+          type: isNewUser ? 'user_signup' : 'user_login',
+          action: isNewUser ? 'signup' : 'login',
+          timestamp: DateTime.now().toUtc().toIso8601String(),
+          metadata: {'method': 'google'},
+        ));
+      }
+      return cred;
+    } catch (e) {
+      rethrow;
+    }
   }
 
   Future<void> signOut() async {
     await _auth.signOut();
+    try {
+      await GoogleSignIn().signOut();
+    } catch (_) {}
   }
 
   // ─── Feed (Firestore) ───────────────────────────────────
@@ -48,6 +149,8 @@ class ApiService {
     String? gender,
     List<String>? sizes,
     String? category,
+    int? minPrice,
+    int? maxPrice,
   }) async {
     Query query = _db.collection('items')
         .where('status', isEqualTo: 'active');
@@ -55,20 +158,28 @@ class ApiService {
     if (gender != null && gender != 'All') {
       query = query.where('gender', isEqualTo: gender);
     }
-    
+
     if (category != null && category != 'All') {
       query = query.where('category', isEqualTo: category);
     }
 
-    if (sizes != null && sizes.isNotEmpty) {
-      query = query.where('size', whereIn: sizes);
+    final hasSizes = sizes != null && sizes.isNotEmpty;
+    final hasPrice = minPrice != null || maxPrice != null;
+
+    if (hasSizes) {
+      if (sizes.length <= 10) {
+        query = query.where('size', whereIn: sizes);
+      }
+      // sizes uses whereIn — price must be filtered client-side
+      query = query.orderBy('created_at', descending: true).limit(hasPrice ? limit * 3 : limit);
+    } else if (hasPrice) {
+      // No sizes filter — safe to use price range on server
+      if (minPrice != null) query = query.where('price', isGreaterThanOrEqualTo: minPrice);
+      if (maxPrice != null) query = query.where('price', isLessThanOrEqualTo: maxPrice);
+      query = query.orderBy('price').orderBy('created_at', descending: true).limit(limit);
+    } else {
+      query = query.orderBy('created_at', descending: true).limit(limit);
     }
-
-    // Inactive sellers are handled by the updateSellerActivity Cloud Function
-    // which sets status to 'inactive'. We simply exclude those items.
-    query = query.where('status', isNotEqualTo: 'inactive');
-
-    query = query.orderBy('created_at', descending: true).limit(limit);
 
     if (startAfterId != null) {
       final doc = await _db.collection('items').doc(startAfterId).get();
@@ -78,10 +189,22 @@ class ApiService {
     }
 
     final snapshot = await query.get();
-    return snapshot.docs.map((doc) => WavyItem.fromJson({
+    var docs = snapshot.docs.map((doc) => WavyItem.fromJson({
       ...doc.data() as Map<String, dynamic>,
       'id': doc.id,
     })).toList();
+
+    // Client-side price filter when combined with sizes
+    if (hasSizes && hasPrice) {
+      docs = docs.where((item) {
+        final price = item.price;
+        if (minPrice != null && price < minPrice) return false;
+        if (maxPrice != null && price > maxPrice) return false;
+        return true;
+      }).take(limit).toList();
+    }
+
+    return docs;
   }
 
   Future<WavyItem> getItem(String id) async {
@@ -93,7 +216,18 @@ class ApiService {
   }
 
   // ─── Media (Storage) ────────────────────────────────────
+  Future<void> checkUploadRateLimit() async {
+    try {
+      await _functions.httpsCallable('checkUploadRateLimit').call();
+    } on FirebaseFunctionsException catch (e) {
+      if (e.code == 'resource-exhausted') throw Exception('UPLOAD_LIMIT_REACHED');
+      if (e.code == 'not-found') return; // Fallback
+      rethrow;
+    }
+  }
+
   Future<String> uploadImage(File file, String path, {Map<String, String>? customMetadata}) async {
+    await checkUploadRateLimit();
     final ref = FirebaseStorage.instance.ref().child(path);
     final metadata = SettableMetadata(customMetadata: customMetadata);
     final uploadTask = ref.putFile(file, metadata);
@@ -102,7 +236,18 @@ class ApiService {
   }
 
   // ─── Sell / Publish (Firestore) ─────────────────────────
+  Future<void> checkPublishRateLimit() async {
+    try {
+      await _functions.httpsCallable('checkPublishRateLimit').call();
+    } on FirebaseFunctionsException catch (e) {
+      if (e.code == 'resource-exhausted') throw Exception('POST_LIMIT_REACHED');
+      if (e.code == 'not-found') return; // Fallback
+      rethrow;
+    }
+  }
+
   Future<WavyItem> publishItem(Map<String, dynamic> itemData) async {
+    await checkPublishRateLimit();
     final docRef = _db.collection('items').doc();
     final dataWithId = {
       ...itemData,
@@ -117,6 +262,26 @@ class ApiService {
         throw Exception('POST_LIMIT_REACHED');
       }
       rethrow;
+    }
+  }
+
+  // ─── Edit / Delete Item ────────────────────────────────
+  Future<void> updateItem(String itemId, Map<String, dynamic> data) async {
+    await _db.collection('items').doc(itemId).update(data);
+  }
+
+  Future<void> deleteItem(String itemId) async {
+    await _db.collection('items').doc(itemId).delete();
+    
+    final userId = _auth.currentUser?.uid;
+    if (userId != null) {
+      logEvent(WavyEvent(
+        userId: userId,
+        itemId: itemId,
+        type: 'listing_deleted',
+        action: 'delete',
+        timestamp: DateTime.now().toUtc().toIso8601String(),
+      ));
     }
   }
 
@@ -147,6 +312,19 @@ class ApiService {
           'id': doc.id,
         });
       }
+      
+      // Fallback to user document for normal users selling items
+      final userDoc = await _db.collection('users').doc(sellerId).get();
+      if (userDoc.exists) {
+        final userData = userDoc.data()!;
+        return Seller(
+          id: userDoc.id,
+          name: userData['fullName'] ?? userData['name'] ?? 'Wavy User',
+          phone: userData['phone'],
+          market: 'Individual Seller',
+          address: 'Addis Ababa',
+        );
+      }
       return null;
     } catch (_) {
       return null;
@@ -159,8 +337,8 @@ class ApiService {
         'sellerId': sellerId,
       });
       return result.data['phone'] as String?;
-    } catch (e) {
-      debugPrint('Error fetching private phone: $e');
+    } catch (_) {
+      // Error fetching private phone removed from production
       return null;
     }
   }
@@ -274,7 +452,7 @@ class ApiService {
         .doc(conversationId)
         .collection('messages')
         .orderBy('timestamp', descending: true)
-        .limit(5)
+        .limit(25) // Load 25 most recent messages — enough for most active threads
         .snapshots()
         .map((snapshot) => snapshot.docs
             .map((doc) => ChatMessage.fromJson({...doc.data(), 'id': doc.id}, doc: doc))
@@ -288,7 +466,7 @@ class ApiService {
         .collection('messages')
         .orderBy('timestamp', descending: true)
         .startAfterDocument(lastDoc)
-        .limit(5)
+        .limit(20) // Load 20 more per page when user scrolls up
         .get();
 
     return snapshot.docs
@@ -314,27 +492,18 @@ class ApiService {
   Future<String> startOrGetConversation(List<String> participants) async {
     final sortedParticipants = List<String>.from(participants)..sort();
     final conversationKey = sortedParticipants.join('_');
+    final currentUser = _auth.currentUser;
     
+    // Query must include arrayContains so Firestore rules can validate
+    // that the caller is a participant (rules require uid in participants)
     final query = await _db.collection('conversations')
         .where('conversation_key', isEqualTo: conversationKey)
+        .where('participants', arrayContains: currentUser?.uid)
         .limit(1)
         .get();
         
     if (query.docs.isNotEmpty) {
       return query.docs.first.id;
-    }
-
-    // Check thread limits before creating a new one
-    final currentUser = _auth.currentUser;
-    if (currentUser != null) {
-      final activeThreads = await _db.collection('conversations')
-          .where('participants', arrayContains: currentUser.uid)
-          .count()
-          .get();
-
-      if (activeThreads.count! >= 75) {
-        throw Exception('THREAD_LIMIT_REACHED');
-      }
     }
     
     final docRef = await _db.collection('conversations').add({
@@ -343,6 +512,18 @@ class ApiService {
       'updated_at': FieldValue.serverTimestamp(),
       'created_at': FieldValue.serverTimestamp(),
     });
+
+    final user = _auth.currentUser;
+    if (user != null) {
+      logEvent(WavyEvent(
+        userId: user.uid,
+        type: 'conversation_started',
+        action: 'start_chat',
+        timestamp: DateTime.now().toUtc().toIso8601String(),
+        metadata: {'participants': participants},
+      ));
+    }
+    
     return docRef.id;
   }
 

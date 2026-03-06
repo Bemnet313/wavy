@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../providers/providers.dart';
+import '../../models/models.dart';
 import '../theme/app_theme.dart';
 
 class SellScreen extends ConsumerStatefulWidget {
@@ -18,12 +19,35 @@ class _SellScreenState extends ConsumerState<SellScreen> {
   final _titleController = TextEditingController();
   final _priceController = TextEditingController();
   final _picker = ImagePicker();
-  
+
   String _selectedSize = 'M';
   String _selectedCondition = 'Good';
   final String _selectedCategory = 'Tops';
   final List<File> _images = [];
   bool _isPublishing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Restore any saved draft (persists tab switches)
+    final draft = ref.read(sellDraftProvider);
+    _titleController.text = draft.title;
+    _priceController.text = draft.price;
+    _selectedSize = draft.size;
+    _selectedCondition = draft.condition;
+    // Restore image files from paths
+    for (final path in draft.imagePaths) {
+      final f = File(path);
+      if (f.existsSync()) _images.add(f);
+    }
+    // Keep draft in sync with text controllers
+    _titleController.addListener(() {
+      ref.read(sellDraftProvider.notifier).updateTitle(_titleController.text);
+    });
+    _priceController.addListener(() {
+      ref.read(sellDraftProvider.notifier).updatePrice(_priceController.text);
+    });
+  }
 
   @override
   void dispose() {
@@ -53,9 +77,10 @@ class _SellScreenState extends ConsumerState<SellScreen> {
         setState(() {
           _images.add(file);
         });
+        ref.read(sellDraftProvider.notifier).addImage(file.path);
       }
     } catch (e) {
-      debugPrint('Error picking image: $e');
+      // Error handling without debugPrint in production
     }
   }
 
@@ -63,6 +88,7 @@ class _SellScreenState extends ConsumerState<SellScreen> {
     setState(() {
       _images.removeAt(index);
     });
+    ref.read(sellDraftProvider.notifier).removeImage(index);
   }
 
   Future<void> _publish() async {
@@ -104,12 +130,14 @@ class _SellScreenState extends ConsumerState<SellScreen> {
       final itemId = api.generateId();
 
       // 1. Upload Images
+      final sellerId = ref.read(authProvider).user?.id ?? 'anonymous';
       for (int i = 0; i < _images.length; i++) {
-        final path = 'items/${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        final path = 'items/$sellerId/$itemId/${timestamp}_$i.jpg';
         final url = await api.uploadImage(
           _images[i], 
           path, 
-          customMetadata: {'itemId': itemId},
+          customMetadata: {'itemId': itemId, 'sellerId': sellerId},
         );
         imageUrls.add(url);
       }
@@ -132,10 +160,22 @@ class _SellScreenState extends ConsumerState<SellScreen> {
 
       await api.publishItem(itemData);
 
+      final userId = authState.fbUser?.uid;
+      if (userId != null) {
+        api.logEvent(WavyEvent(
+          userId: userId,
+          itemId: itemId,
+          type: 'item_published',
+          action: 'publish',
+          timestamp: DateTime.now().toUtc().toIso8601String(),
+        ));
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('✅ DROP SUCCESSFUL')),
         );
+        ref.read(sellDraftProvider.notifier).clear();
         context.go('/feed');
       }
     } catch (e) {
@@ -533,9 +573,18 @@ class _SellScreenState extends ConsumerState<SellScreen> {
               height: 60,
               child: ElevatedButton(
                 onPressed: _isPublishing ? null : () async {
-                  final isVerified = ref.read(authProvider).isVerified;
-                  if (!isVerified) {
-                    final phone = ref.read(authProvider).phone ?? '+251900000000';
+                  if (!ref.read(authProvider).isVerified) {
+                    String? currentPhone = ref.read(authProvider).phone;
+                    
+                    if (currentPhone == null || currentPhone.isEmpty) {
+                      // 1. Collect phone if missing
+                      currentPhone = await context.push<String>('/phone');
+                      // Guard: widget may be gone if user dismissed the phone screen
+                      if (!mounted) return;
+                      if (currentPhone == null) return;
+                    }
+
+                    // 2. Ask for OTP initiation
                     final wantsToVerify = await showDialog<bool>(
                       context: context,
                       builder: (context) => AlertDialog(
@@ -591,8 +640,11 @@ class _SellScreenState extends ConsumerState<SellScreen> {
                     );
                     
                     if (wantsToVerify == true) {
-                      ref.read(authProvider.notifier).sendOtp(phone);
-                      final verified = await context.push<bool>('/otp', extra: phone);
+                      ref.read(authProvider.notifier).sendOtp(currentPhone);
+                      if (!mounted) return;
+                      final verified = await context.push<bool>('/otp', extra: currentPhone);
+                      // Guard: widget may be gone if user navigated away during OTP
+                      if (!mounted) return;
                       if (verified != true) {
                         return;
                       }

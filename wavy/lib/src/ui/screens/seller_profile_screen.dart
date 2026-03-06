@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
+import '../../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 
 class SellerProfileScreen extends ConsumerStatefulWidget {
@@ -45,7 +47,17 @@ class _SellerProfileScreenState extends ConsumerState<SellerProfileScreen> {
 
   Future<void> _loadData() async {
     final api = ref.read(apiServiceProvider);
-    final seller = await api.getSeller(widget.sellerId);
+    var seller = await api.getSeller(widget.sellerId);
+
+    // Fallback: create a minimal Seller so the profile page doesn't crash
+    seller ??= Seller(
+      id: widget.sellerId,
+      name: 'Wavy User',
+      phone: null,
+      market: 'Individual Seller',
+      address: 'Addis Ababa',
+    );
+
     final listings = await api.getSellerListings(widget.sellerId);
     if (mounted) {
       setState(() {
@@ -57,12 +69,22 @@ class _SellerProfileScreenState extends ConsumerState<SellerProfileScreen> {
   }
 
   void _logEvent(String eventName, Map<String, dynamic> params) {
-    debugPrint('WavyLogger: $eventName $params');
+    final userId = ref.read(authProvider).fbUser?.uid;
+    if (userId != null) {
+      ref.read(apiServiceProvider).logEvent(WavyEvent(
+        userId: userId,
+        itemId: params['item_id'] as String?,
+        type: eventName,
+        action: eventName,
+        timestamp: DateTime.now().toUtc().toIso8601String(),
+        metadata: params,
+      ));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final locale = ref.watch(localeProvider);
+    final tr = AppLocalizations.instance.tr;
 
     if (_isLoading) {
       return const Scaffold(
@@ -78,9 +100,24 @@ class _SellerProfileScreenState extends ConsumerState<SellerProfileScreen> {
         backgroundColor: Colors.black,
         appBar: AppBar(backgroundColor: Colors.black, foregroundColor: Colors.white),
         body: Center(
-          child: Text(
-            locale == 'am' ? 'ሻጭ አልተገኘም' : 'SELLER NOT FOUND',
-            style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.person_off_rounded, color: Colors.white54, size: 48),
+              const SizedBox(height: 16),
+              Text(
+                'SELLER NOT FOUND',
+                style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() => _isLoading = true);
+                  _loadData();
+                },
+                child: const Text('RETRY'),
+              ),
+            ],
           ),
         ),
       );
@@ -198,7 +235,7 @@ class _SellerProfileScreenState extends ConsumerState<SellerProfileScreen> {
                                       child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                                     )
                                   : Text(
-                                      locale == 'am' ? 'አሳይ' : 'REVEAL',
+                                      tr('cta_reveal'),
                                       style: GoogleFonts.spaceGrotesk(
                                         fontSize: 10,
                                         fontWeight: FontWeight.w800,
@@ -215,40 +252,74 @@ class _SellerProfileScreenState extends ConsumerState<SellerProfileScreen> {
             ),
           ),
 
-          // ─── Stats & Actions ──────────────────────────────
+          // ─── Stats Tiles ──────────────────────────────────
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Column(
                 children: [
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      _StatItem(
-                        label: locale == 'am' ? 'የተሸጡ' : 'SOLD',
-                        value: seller.totalSales.toString(),
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 20),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.05),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                          ),
+                          child: Column(
+                            children: [
+                              Text(
+                                _listings.length.toString(),
+                                style: GoogleFonts.spaceGrotesk(
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.w900,
+                                  color: WavyTheme.neonCyan,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'LISTINGS',
+                                style: GoogleFonts.spaceGrotesk(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white.withValues(alpha: 0.5),
+                                  letterSpacing: 2,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                      Container(
-                        width: 1,
-                        height: 30,
-                        margin: const EdgeInsets.symmetric(horizontal: 24),
-                        color: Colors.white.withValues(alpha: 0.2),
-                      ),
-                      _StatItem(
-                        label: locale == 'am' ? 'ደረጃ' : 'RATING',
-                        value: seller.rating.toStringAsFixed(1),
-                        icon: Icons.star_rounded,
-                        iconColor: WavyTheme.neonCyan,
-                      ),
-                      Container(
-                        width: 1,
-                        height: 30,
-                        margin: const EdgeInsets.symmetric(horizontal: 24),
-                        color: Colors.white.withValues(alpha: 0.2),
-                      ),
-                      _StatItem(
-                        label: locale == 'am' ? 'ገበያ' : 'MARKET',
-                        value: seller.market,
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 20),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.05),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                          ),
+                          child: Column(
+                            children: [
+                              const Icon(Icons.storefront_rounded, color: Colors.white, size: 28),
+                              const SizedBox(height: 4),
+                              Text(
+                                seller.market.toUpperCase(),
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.spaceGrotesk(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white.withValues(alpha: 0.5),
+                                  letterSpacing: 2,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -258,10 +329,27 @@ class _SellerProfileScreenState extends ConsumerState<SellerProfileScreen> {
                       Expanded(
                         child: _ActionButton(
                           icon: Icons.chat_bubble_outline_rounded,
-                          label: locale == 'am' ? 'መልእክት' : 'MESSAGE',
-                          onTap: () {
+                          label: tr('cta_message'),
+                          onTap: () async {
                             _logEvent('seller_contact_message', {'seller_id': widget.sellerId});
-                            context.push('/chat/${widget.sellerId}', extra: null);
+                            final currentUserId = ref.read(authProvider).fbUser?.uid;
+                            if (currentUserId == null) return;
+                            String? chatError;
+                            String? conversationId;
+                            try {
+                              conversationId = await ref.read(apiServiceProvider)
+                                  .startOrGetConversation([currentUserId, widget.sellerId]);
+                            } catch (e) {
+                              chatError = e.toString();
+                            }
+                            if (!mounted) return;
+                            if (chatError != null) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Could not start chat: $chatError')),
+                              );
+                            } else if (conversationId != null) {
+                              context.push('/chat/$conversationId');
+                            }
                           },
                         ),
                       ),
@@ -269,12 +357,22 @@ class _SellerProfileScreenState extends ConsumerState<SellerProfileScreen> {
                       Expanded(
                         child: _ActionButton(
                           icon: Icons.call_outlined,
-                          label: locale == 'am' ? 'ይደውሉ' : 'CALL',
-                          onTap: () {
+                          label: tr('cta_call_seller'),
+                          onTap: () async {
                             _logEvent('seller_contact_call', {'seller_id': widget.sellerId});
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Calling ${seller.phone} (Demo)')),
-                            );
+                            final phone = seller.phone;
+                            if (phone == null || phone.isEmpty) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Phone number not available')),
+                                );
+                              }
+                              return;
+                            }
+                            final uri = Uri(scheme: 'tel', path: phone);
+                            if (await canLaunchUrl(uri)) {
+                              await launchUrl(uri);
+                            }
                           },
                         ),
                       ),
@@ -290,7 +388,7 @@ class _SellerProfileScreenState extends ConsumerState<SellerProfileScreen> {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(24, 32, 24, 16),
               child: Text(
-                (locale == 'am' ? 'ዝርዝሮች' : 'LISTINGS').toUpperCase(),
+                tr('seller_listings').toUpperCase(),
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 14,
                   fontWeight: FontWeight.w900,
@@ -339,9 +437,9 @@ class _SellerProfileScreenState extends ConsumerState<SellerProfileScreen> {
                           Expanded(
                             child: ClipRRect(
                               borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
-                              child: item.images.isNotEmpty
+                              child: (item.images.isNotEmpty || item.thumbnailUrl != null)
                                   ? CachedNetworkImage(
-                                      imageUrl: item.images.first,
+                                      imageUrl: item.thumbnailUrl ?? item.images.first,
                                       fit: BoxFit.cover,
                                       width: double.infinity,
                                     )
@@ -435,54 +533,6 @@ class _ActionButton extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _StatItem extends StatelessWidget {
-  final String label;
-  final String value;
-  final IconData? icon;
-  final Color? iconColor;
-
-  const _StatItem({
-    required this.label,
-    required this.value,
-    this.icon,
-    this.iconColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Row(
-          children: [
-            Text(
-              value,
-              style: GoogleFonts.spaceGrotesk(
-                fontSize: 20,
-                fontWeight: FontWeight.w900,
-                color: Colors.white,
-              ),
-            ),
-            if (icon != null) ...[
-              const SizedBox(width: 4),
-              Icon(icon, size: 16, color: iconColor),
-            ],
-          ],
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: GoogleFonts.spaceGrotesk(
-            fontSize: 10,
-            fontWeight: FontWeight.w600,
-            color: Colors.white.withValues(alpha: 0.5),
-            letterSpacing: 1,
-          ).copyWith(fontFamilyFallback: const ['Noto Sans Ethiopic']),
-        ),
-      ],
     );
   }
 }

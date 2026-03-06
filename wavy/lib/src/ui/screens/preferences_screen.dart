@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../providers/providers.dart';
+import '../../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 
 class PreferencesScreen extends ConsumerStatefulWidget {
@@ -15,11 +16,14 @@ class PreferencesScreen extends ConsumerStatefulWidget {
 class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
   String _role = ''; // 'buyer', 'seller', or 'both'
   final _ageController = TextEditingController();
+  final _nameController = TextEditingController();
   bool _isAgeValid = false;
+  bool _isNameValid = false;
 
   @override
   void dispose() {
     _ageController.dispose();
+    _nameController.dispose();
     super.dispose();
   }
 
@@ -33,10 +37,17 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
     });
   }
 
+  void _onNameChanged(String value) {
+    setState(() {
+      _isNameValid = value.trim().length >= 3;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final prefs = ref.watch(preferencesProvider);
     final locale = ref.watch(localeProvider);
+    final tr = AppLocalizations.instance.tr;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -56,7 +67,7 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
                     ),
                     const SizedBox(height: 24),
                     Text(
-                      (locale == 'am' ? 'ስለእርስዎ ይንገሩን' : 'PROFILE DESIGN').toUpperCase(),
+                      tr('pref_profile_design').toUpperCase(),
                       style: GoogleFonts.spaceGrotesk(
                         fontSize: 28,
                         fontWeight: FontWeight.w900,
@@ -66,9 +77,7 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      (locale == 'am'
-                          ? 'የርስዎን ልምድ ለመላለም ይረዱን'
-                          : 'CONFIGURE YOUR BIOMETRIC DATA FOR THE NETWORK.').toUpperCase(),
+                      tr('pref_profile_design_subtitle').toUpperCase(),
                       style: GoogleFonts.spaceGrotesk(
                         fontSize: 10,
                         fontWeight: FontWeight.w800,
@@ -81,7 +90,7 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
                     // ─── STEP 1: Buyer / Seller Role ────────
                     _SectionHeader(
                       icon: Icons.person_outline_rounded,
-                      title: (locale == 'am' ? 'እኔ ነኝ...' : "PRIMARY FOCUS").toUpperCase(),
+                      title: tr('pref_primary_focus').toUpperCase(),
                     ),
                     const SizedBox(height: 16),
                     Column(
@@ -89,8 +98,8 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
                         _RoleCard(
                           role: 'buyer',
                           icon: Icons.shopping_bag_outlined,
-                          title: (locale == 'am' ? 'ገዢ' : 'BUY').toUpperCase(),
-                          subtitle: (locale == 'am' ? 'ዕቃ ማግኘት' : 'ACQUIRE').toUpperCase(),
+                          title: tr('pref_buy').toUpperCase(),
+                          subtitle: tr('pref_acquire').toUpperCase(),
                           isSelected: _role == 'buyer',
                           onTap: () => setState(() => _role = 'buyer'),
                         ),
@@ -98,8 +107,8 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
                         _RoleCard(
                           role: 'seller',
                           icon: Icons.attach_money_rounded,
-                          title: (locale == 'am' ? 'ሻጭ' : 'SELL').toUpperCase(),
-                          subtitle: (locale == 'am' ? 'ዕቃ መሸጥ' : 'LIST').toUpperCase(),
+                          title: tr('pref_sell_role').toUpperCase(),
+                          subtitle: tr('pref_list').toUpperCase(),
                           isSelected: _role == 'seller',
                           onTap: () => setState(() => _role = 'seller'),
                         ),
@@ -107,8 +116,8 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
                         _RoleCard(
                           role: 'both',
                           icon: Icons.sync_rounded,
-                          title: (locale == 'am' ? 'ሁለቱም' : 'BOTH').toUpperCase(),
-                          subtitle: (locale == 'am' ? 'ሁለቱንም' : 'HYBRID').toUpperCase(),
+                          title: tr('pref_both').toUpperCase(),
+                          subtitle: tr('pref_hybrid').toUpperCase(),
                           isSelected: _role == 'both',
                           onTap: () => setState(() => _role = 'both'),
                         ),
@@ -119,14 +128,14 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
                     // ─── STEP 2: Gender ────────────
                     _SectionHeader(
                       icon: Icons.wc_rounded,
-                      title: (locale == 'am' ? 'ፆታዎ ምንድነው?' : "GENDER SPECTRUM").toUpperCase(),
+                      title: tr('pref_gender_title').toUpperCase(),
                     ),
                     const SizedBox(height: 16),
                     Row(
                       children: [
                         _GenderCard(
                           gender: 'female',
-                          title: (locale == 'am' ? 'ሴት' : 'FEMALE').toUpperCase(),
+                          title: tr('pref_female').toUpperCase(),
                           icon: Icons.female_rounded,
                           isSelected: prefs.gender == 'female',
                           onTap: () => ref.read(preferencesProvider.notifier).setGender('female'),
@@ -134,7 +143,7 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
                         const SizedBox(width: 8),
                         _GenderCard(
                           gender: 'male',
-                          title: (locale == 'am' ? 'ወንድ' : 'MALE').toUpperCase(),
+                          title: tr('pref_male').toUpperCase(),
                           icon: Icons.male_rounded,
                           isSelected: prefs.gender == 'male',
                           onTap: () => ref.read(preferencesProvider.notifier).setGender('male'),
@@ -146,7 +155,7 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
                     // ─── STEP 3: Age ─────────────
                     _SectionHeader(
                       icon: Icons.cake_rounded,
-                      title: (locale == 'am' ? 'እድሜዎ ስንት ነው?' : "CHRONOLOGICAL AGE").toUpperCase(),
+                      title: tr('pref_age_title').toUpperCase(),
                     ),
                     const SizedBox(height: 16),
                     TextField(
@@ -160,7 +169,7 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
                       ),
                       cursorColor: Colors.white,
                       decoration: InputDecoration(
-                        hintText: locale == 'am' ? 'ለምሳሌ 24' : 'E.G. 24',
+                        hintText: tr('pref_age_hint'),
                         hintStyle: GoogleFonts.spaceGrotesk(
                           color: Colors.white.withValues(alpha: 0.1),
                           fontWeight: FontWeight.w700,
@@ -183,6 +192,47 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
                       ),
                     ),
                     const SizedBox(height: 40),
+
+                    // ─── STEP 4: Full Name ─────────────
+                    _SectionHeader(
+                      icon: Icons.badge_rounded,
+                      title: tr('pref_name_title').toUpperCase(),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _nameController,
+                      onChanged: _onNameChanged,
+                      textCapitalization: TextCapitalization.words,
+                      style: GoogleFonts.spaceGrotesk(
+                        color: Colors.white, 
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                      cursorColor: Colors.white,
+                      decoration: InputDecoration(
+                        hintText: tr('pref_name_hint'),
+                        hintStyle: GoogleFonts.spaceGrotesk(
+                          color: Colors.white.withValues(alpha: 0.1),
+                          fontWeight: FontWeight.w700,
+                        ),
+                        filled: true,
+                        fillColor: Colors.white.withValues(alpha: 0.02),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(4),
+                          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1), width: 1),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(4),
+                          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1), width: 1),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(4),
+                          borderSide: const BorderSide(color: Colors.white, width: 1),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 80),
                   ],
                 ),
               ),
@@ -198,10 +248,29 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
                 width: double.infinity,
                 height: 60,
                 child: ElevatedButton(
-                  onPressed: (_role.isNotEmpty && _isAgeValid && prefs.gender.isNotEmpty)
-                      ? () {
-                          ref.read(onboardingCompleteProvider.notifier).state = true;
-                          context.go('/feed');
+                  onPressed: (_role.isNotEmpty && _isAgeValid && prefs.gender.isNotEmpty && _isNameValid)
+                      ? () async {
+                          String? errorMessage;
+                          try {
+                            await ref.read(authProvider.notifier).completeOnboarding(
+                              fullName: _nameController.text.trim(),
+                              role: _role,
+                              gender: prefs.gender,
+                              age: int.parse(_ageController.text.trim()),
+                              language: locale,
+                            );
+                          } catch (e) {
+                            errorMessage = e.toString();
+                          }
+                          // Guard ALL BuildContext usage after the await in one clear block
+                          if (!mounted) return;
+                          if (errorMessage != null) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Verification failure: $errorMessage')),
+                            );
+                          } else {
+                            context.go('/feed');
+                          }
                         }
                       : null,
                   style: ElevatedButton.styleFrom(
@@ -215,7 +284,7 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
                     elevation: 0,
                   ),
                   child: Text(
-                    (locale == 'am' ? 'ጀምር' : "INITIALIZE").toUpperCase(),
+                    tr('pref_launch').toUpperCase(),
                     style: GoogleFonts.spaceGrotesk(
                       fontSize: 16,
                       fontWeight: FontWeight.w900,

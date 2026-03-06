@@ -38,7 +38,11 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
     if (!_isComplete) return;
     final success = await ref.read(authProvider.notifier).verifyOtp(_otp);
     if (success && mounted) {
-      context.go('/preferences');
+      if (GoRouter.of(context).canPop()) {
+        context.pop(true);
+      } else {
+        context.go('/preferences');
+      }
     }
   }
 

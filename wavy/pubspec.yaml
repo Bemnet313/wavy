@@ -18,7 +18,11 @@ dependencies:
   cloud_firestore: ^5.6.1
   firebase_storage: ^12.3.1
   firebase_messaging: ^15.2.1
+  google_sign_in: ^6.2.1
   cloud_functions: ^5.2.1
+  firebase_app_check: ^0.3.1+1
+  firebase_analytics: ^11.4.2
+  firebase_crashlytics: ^4.3.2
 
   # State management
   flutter_riverpod: ^2.6.1

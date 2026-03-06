@@ -43,4 +43,10 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
-\n# Environments\n.env\n.env*
+# Environments & Secrets
+.env
+.env.*
+.env.local
+.env.production
+*.keystore
+*.jks

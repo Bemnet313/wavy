@@ -36,10 +36,10 @@ class WavyCard extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             // Background image
-            item.images.isNotEmpty
-                ? (item.images.first.startsWith('http')
+            item.images.isNotEmpty || item.thumbnailUrl != null
+                ? ((item.thumbnailUrl ?? item.images.first).startsWith('http')
                     ? CachedNetworkImage(
-                        imageUrl: item.images.first,
+                        imageUrl: item.thumbnailUrl ?? item.images.first,
                         fit: BoxFit.cover,
                         placeholder: (context, url) => Container(
                           color: Colors.black,
@@ -57,7 +57,7 @@ class WavyCard extends StatelessWidget {
                         ),
                       )
                     : Image.asset(
-                        item.images.first,
+                        item.thumbnailUrl ?? item.images.first,
                         fit: BoxFit.cover,
                         errorBuilder: (context, error, stackTrace) => Container(
                           color: Colors.black,
