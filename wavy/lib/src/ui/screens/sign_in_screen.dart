@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../providers/providers.dart';
+
 class SignInScreen extends ConsumerStatefulWidget {
   const SignInScreen({super.key});
 
@@ -41,8 +42,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
         if (next.user != null) {
           context.go('/feed');
         } else {
-          // If no user document exists, start onboarding
-          context.go('/language');
+          context.go('/preferences');
         }
       }
       if (next.error != null) {
@@ -120,49 +120,53 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                   ],
                 ),
               ),
-              const SizedBox(height: 48),
+              const SizedBox(height: 40),
+
+              // 1. Sign In button — white filled
               SizedBox(
                 width: double.infinity,
-                height: 60,
+                height: 56,
                 child: ElevatedButton(
                   onPressed: authState.isLoading ? null : _signIn,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.white,
                     foregroundColor: Colors.black,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                    elevation: 0,
                   ),
                   child: authState.isLoading
-                      ? const CircularProgressIndicator(color: Colors.black)
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2))
                       : Text(
                           (locale == 'am' ? 'ይግቡ' : 'SIGN IN').toUpperCase(),
                           style: GoogleFonts.spaceGrotesk(
-                            fontSize: 16,
+                            fontSize: 15,
                             fontWeight: FontWeight.w900,
                             letterSpacing: 2,
                           ).copyWith(fontFamilyFallback: const ['Noto Sans Ethiopic']),
                         ),
                 ),
               ),
-              const SizedBox(height: 24),
-              // Google Sign In
+              const SizedBox(height: 12),
+
+              // 2. Continue with Google — outlined
               SizedBox(
                 width: double.infinity,
-                height: 60,
+                height: 56,
                 child: OutlinedButton(
                   onPressed: authState.isLoading ? null : () => ref.read(authProvider.notifier).loginWithGoogle(),
                   style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                    side: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.g_mobiledata, color: Colors.white, size: 32),
+                      const Icon(Icons.g_mobiledata, color: Colors.white, size: 28),
                       const SizedBox(width: 8),
                       Text(
                         (locale == 'am' ? 'በጉግል ይግቡ' : 'CONTINUE WITH GOOGLE').toUpperCase(),
                         style: GoogleFonts.spaceGrotesk(
-                          fontSize: 14,
+                          fontSize: 13,
                           fontWeight: FontWeight.w700,
                           color: Colors.white,
                           letterSpacing: 1,
@@ -172,33 +176,30 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 32),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    locale == 'am' ? 'አዲስ ነዎት? ' : "NEW HERE? ",
+              const SizedBox(height: 12),
+
+              // 3. Create Account — outlined, same style as Google
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: OutlinedButton(
+                  onPressed: authState.isLoading ? null : () => context.go('/signup'),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                  ),
+                  child: Text(
+                    (locale == 'am' ? 'ተመዝገቡ' : 'CREATE ACCOUNT').toUpperCase(),
                     style: GoogleFonts.spaceGrotesk(
-                      color: Colors.white.withValues(alpha: 0.3),
-                      fontSize: 12,
+                      fontSize: 13,
                       fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                      letterSpacing: 1,
                     ).copyWith(fontFamilyFallback: const ['Noto Sans Ethiopic']),
                   ),
-                  GestureDetector(
-                    onTap: () => context.go('/signup'),
-                    child: Text(
-                      (locale == 'am' ? 'ተመዝገቡ' : 'CREATE ACCOUNT').toUpperCase(),
-                      style: GoogleFonts.spaceGrotesk(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w900,
-                        decoration: TextDecoration.underline,
-                      ).copyWith(fontFamilyFallback: const ['Noto Sans Ethiopic']),
-                    ),
-                  ),
-                ],
+                ),
               ),
-
+              const SizedBox(height: 32),
             ],
           ),
         ),

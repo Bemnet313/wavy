@@ -78,7 +78,7 @@ class _MyListingsScreenState extends ConsumerState<MyListingsScreen> {
           onPressed: () => context.pop(),
         ),
         title: Text(
-          locale == 'am' ? 'ዝርዝሮቼ' : 'MY LISTINGS',
+          locale == 'am' ? 'የለቀቀኳቻው' : 'My Drops',
           style: GoogleFonts.spaceGrotesk(
             fontWeight: FontWeight.w900,
             letterSpacing: 2,
@@ -126,7 +126,7 @@ class _MyListingsScreenState extends ConsumerState<MyListingsScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
             ),
             child: Text(
-              locale == 'am' ? 'አዲስ ልጥፍ' : 'POST YOUR FIRST DROP',
+               locale == 'am' ? 'አዲስ ዕቃ ይልቀቁ' : 'Post a Drop',
               style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w900, letterSpacing: 1),
             ),
           ),

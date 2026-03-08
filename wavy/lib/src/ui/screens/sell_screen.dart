@@ -61,6 +61,8 @@ class _SellScreenState extends ConsumerState<SellScreen> {
       final pickedFile = await _picker.pickImage(
         source: ImageSource.gallery,
         imageQuality: 70,
+        maxWidth: 1200,
+        maxHeight: 1200,
       );
       if (pickedFile != null) {
         final file = File(pickedFile.path);
@@ -115,10 +117,6 @@ class _SellScreenState extends ConsumerState<SellScreen> {
     }
 
     final authState = ref.read(authProvider);
-    if (!authState.isVerified) {
-      // Trigger verification flow (already handled in UI but safety check)
-      return;
-    }
 
     setState(() => _isPublishing = true);
 
@@ -173,7 +171,7 @@ class _SellScreenState extends ConsumerState<SellScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('✅ DROP SUCCESSFUL')),
+          const SnackBar(content: Text('Drop posted successfully')),
         );
         ref.read(sellDraftProvider.notifier).clear();
         context.go('/feed');
@@ -184,7 +182,7 @@ class _SellScreenState extends ConsumerState<SellScreen> {
           _showPremiumUpsell();
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('DROP FAILED: $e')),
+            SnackBar(content: Text('Failed to post drop: $e')),
           );
         }
       }
@@ -283,7 +281,7 @@ class _SellScreenState extends ConsumerState<SellScreen> {
           child: Image.asset('assets/wavy_logo_new.png', fit: BoxFit.contain),
         ),
         title: Text(
-          (locale == 'am' ? 'ዕቃ ይሸጡ' : 'DROP ITEM').toUpperCase(),
+          (locale == 'am' ? 'አዲስ ዕቃ ይልቀቁ' : 'Create a Drop').toUpperCase(),
           style: GoogleFonts.spaceGrotesk(
             fontWeight: FontWeight.w900,
             letterSpacing: 2,
@@ -324,7 +322,7 @@ class _SellScreenState extends ConsumerState<SellScreen> {
                           color: Colors.white.withValues(alpha: 0.2)),
                       const SizedBox(height: 16),
                       Text(
-                        (locale == 'am' ? 'ፎቶ ያክሉ' : 'UPLOAD VISUALS').toUpperCase(),
+                        (locale == 'am' ? 'ፎቶዎችን ያጫኑ' : 'ADD VISUALS').toUpperCase(),
                         style: GoogleFonts.spaceGrotesk(
                           fontSize: 13,
                           fontWeight: FontWeight.w900,
@@ -419,7 +417,7 @@ class _SellScreenState extends ConsumerState<SellScreen> {
             const SizedBox(height: 40),
 
             // Title field
-            _FormLabel(label: locale == 'am' ? 'ርዕስ' : 'ITEM DESIGNATION'),
+            _FormLabel(label: locale == 'am' ? 'የዕቃው ስም' : 'Name your item'),
             const SizedBox(height: 12),
             TextField(
               controller: _titleController,
@@ -456,7 +454,7 @@ class _SellScreenState extends ConsumerState<SellScreen> {
             const SizedBox(height: 28),
 
             // Price field
-            _FormLabel(label: locale == 'am' ? 'ዋጋ (ብር)' : 'VALUATION (ETB)'),
+            _FormLabel(label: locale == 'am' ? 'ዋጋ (በብር)' : 'Price (ETB)'),
             const SizedBox(height: 12),
             TextField(
               controller: _priceController,
@@ -495,7 +493,7 @@ class _SellScreenState extends ConsumerState<SellScreen> {
             const SizedBox(height: 28),
 
             // Size selector
-            _FormLabel(label: locale == 'am' ? 'መጠን' : 'SPECIFICATIONS (SIZE)'),
+            _FormLabel(label: locale == 'am' ? 'ሳይዝ' : 'Size'),
             const SizedBox(height: 12),
             Wrap(
               spacing: 10,
@@ -533,7 +531,7 @@ class _SellScreenState extends ConsumerState<SellScreen> {
             const SizedBox(height: 28),
 
             // Condition selector
-            _FormLabel(label: locale == 'am' ? 'ሁኔታ' : 'CONDITION STATUS'),
+            _FormLabel(label: locale == 'am' ? 'የዕቃው ሁኔታ' : 'Condition'),
             const SizedBox(height: 12),
             Wrap(
               spacing: 10,
@@ -573,87 +571,7 @@ class _SellScreenState extends ConsumerState<SellScreen> {
               height: 60,
               child: ElevatedButton(
                 onPressed: _isPublishing ? null : () async {
-                  if (!ref.read(authProvider).isVerified) {
-                    String? currentPhone = ref.read(authProvider).phone;
-                    
-                    if (currentPhone == null || currentPhone.isEmpty) {
-                      // 1. Collect phone if missing
-                      currentPhone = await context.push<String>('/phone');
-                      // Guard: widget may be gone if user dismissed the phone screen
-                      if (!mounted) return;
-                      if (currentPhone == null) return;
-                    }
-
-                    // 2. Ask for OTP initiation
-                    final wantsToVerify = await showDialog<bool>(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        backgroundColor: Colors.black,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
-                        ),
-                        title: Text(
-                          (locale == 'am' ? 'የስልክ ማረጋገጫ' : 'VERIFICATION REQUIRED').toUpperCase(),
-                          style: GoogleFonts.spaceGrotesk(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 16,
-                            letterSpacing: 1,
-                          ),
-                        ),
-                        content: Text(
-                          locale == 'am' 
-                            ? 'ዕቃ ለማተም ስልክዎን ማረጋገጥ አለብን። አሁን ኮድ እንላክ?' 
-                            : 'PHONE VERIFICATION MANDATORY FOR NETWORK PUBLISHING. INITIATE NOW?',
-                          style: GoogleFonts.spaceGrotesk(
-                            color: Colors.white.withValues(alpha: 0.6),
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.of(context).pop(false),
-                            child: Text(
-                              (locale == 'am' ? 'ይቅር' : 'ABORT').toUpperCase(),
-                              style: GoogleFonts.spaceGrotesk(
-                                color: Colors.white.withValues(alpha: 0.3),
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                          ElevatedButton(
-                            onPressed: () => Navigator.of(context).pop(true),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.white,
-                              foregroundColor: Colors.black,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                            ),
-                            child: Text(
-                              (locale == 'am' ? 'ኮድ ላክ' : 'PROCEED').toUpperCase(),
-                              style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w900),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                    
-                    if (wantsToVerify == true) {
-                      ref.read(authProvider.notifier).sendOtp(currentPhone);
-                      if (!mounted) return;
-                      final verified = await context.push<bool>('/otp', extra: currentPhone);
-                      // Guard: widget may be gone if user navigated away during OTP
-                      if (!mounted) return;
-                      if (verified != true) {
-                        return;
-                      }
-                    } else {
-                      return;
-                    }
-                  }
-
-                  // Actually Publish
+                  // Directly publish — no OTP verification required
                   await _publish();
                 },
                 style: ElevatedButton.styleFrom(
@@ -667,7 +585,7 @@ class _SellScreenState extends ConsumerState<SellScreen> {
                 child: _isPublishing 
                   ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2))
                   : Text(
-                      (locale == 'am' ? 'ይለቁ 🚀' : 'INITIALIZE DROP').toUpperCase(),
+                      (locale == 'am' ? 'ይልቀቁ' : 'Post Drop').toUpperCase(),
                       style: GoogleFonts.spaceGrotesk(
                         fontSize: 16,
                         fontWeight: FontWeight.w900,

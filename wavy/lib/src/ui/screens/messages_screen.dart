@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
 import '../theme/app_theme.dart';
@@ -68,6 +69,37 @@ class MessagesScreen extends ConsumerWidget {
   }
 }
 
+/// Smart date formatting:
+/// - <24h ago: "2:15 PM"
+/// - Same year: "Mar 9"
+/// - Older: "Mar 9, 2025"
+String _formatSmartDate(String isoDate) {
+  try {
+    final date = DateTime.parse(isoDate);
+    final now = DateTime.now();
+    final diff = now.difference(date);
+
+    if (diff.inHours < 24 && date.day == now.day) {
+      // Today — show time
+      final hour = date.hour > 12 ? date.hour - 12 : (date.hour == 0 ? 12 : date.hour);
+      final period = date.hour >= 12 ? 'PM' : 'AM';
+      final minute = date.minute.toString().padLeft(2, '0');
+      return '$hour:$minute $period';
+    }
+
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final month = months[date.month - 1];
+
+    if (date.year == now.year) {
+      return '$month ${date.day}';
+    }
+
+    return '$month ${date.day}, ${date.year}';
+  } catch (_) {
+    return '';
+  }
+}
+
 class _ConversationTile extends ConsumerWidget {
   final ChatConversation chat;
 
@@ -78,11 +110,13 @@ class _ConversationTile extends ConsumerWidget {
     final currentUserId = ref.read(authProvider).fbUser?.uid;
     final otherId = chat.participants.firstWhere((p) => p != currentUserId, orElse: () => '');
     
-    // Fetch profile if we have an ID
     final profileAsync = otherId.isNotEmpty ? ref.watch(userProfileProvider(otherId)) : const AsyncValue.data(null);
-    final sellerName = profileAsync.valueOrNull?.name ?? 'SELLER';
+    final otherUser = profileAsync.valueOrNull;
+    final sellerName = otherUser?.name ?? 'SELLER';
+    final avatarUrl = otherUser?.avatarUrl;
     
     final lastMsg = chat.lastMessage;
+    final bool hasUnread = _isUnread(chat, currentUserId);
 
     return Dismissible(
       key: Key(chat.id),
@@ -93,8 +127,36 @@ class _ConversationTile extends ConsumerWidget {
         color: Colors.red.withValues(alpha: 0.2),
         child: const Icon(Icons.delete_outline, color: Colors.red),
       ),
+      confirmDismiss: (direction) async {
+        return await showDialog<bool>(
+          context: context,
+          builder: (context) {
+            return AlertDialog(
+              backgroundColor: WavyTheme.surfaceDark,
+              title: Text('DELETE CONVERSATION?',
+                  style: GoogleFonts.spaceGrotesk(
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                      fontSize: 18)),
+              content: Text('This action cannot be undone.',
+                  style: GoogleFonts.spaceGrotesk(color: Colors.white70)),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: Text('CANCEL',
+                      style: GoogleFonts.spaceGrotesk(color: Colors.white54)),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: Text('DELETE',
+                      style: GoogleFonts.spaceGrotesk(color: Colors.red)),
+                ),
+              ],
+            );
+          },
+        );
+      },
       onDismissed: (direction) async {
-        // Actually delete the conversation
         await ref.read(apiServiceProvider).deleteConversation(chat.id);
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -108,7 +170,17 @@ class _ConversationTile extends ConsumerWidget {
         leading: CircleAvatar(
           radius: 28,
           backgroundColor: WavyTheme.surfaceDark,
-          child: const Icon(Icons.person_outline_rounded, color: Colors.white24),
+          child: avatarUrl != null && avatarUrl.isNotEmpty
+              ? ClipOval(
+                  child: CachedNetworkImage(
+                    imageUrl: avatarUrl,
+                    width: 56, height: 56,
+                    fit: BoxFit.cover,
+                    placeholder: (_, __) => const Icon(Icons.person_rounded, color: Colors.white24, size: 24),
+                    errorWidget: (_, __, ___) => const Icon(Icons.person_rounded, color: Colors.white24, size: 24),
+                  ),
+                )
+              : const Icon(Icons.person_rounded, color: Colors.white24, size: 24),
         ),
         title: Row(
           children: [
@@ -116,33 +188,58 @@ class _ConversationTile extends ConsumerWidget {
               child: Text(
                 sellerName.toUpperCase(),
                 style: GoogleFonts.spaceGrotesk(
-                  fontWeight: FontWeight.w800,
+                  fontWeight: hasUnread ? FontWeight.w900 : FontWeight.w800,
                   fontSize: 14,
                   letterSpacing: 0.5,
                   color: Colors.white,
                 ).copyWith(fontFamilyFallback: const ['Noto Sans Ethiopic']),
               ),
             ),
-            Text(
-              chat.updatedAt.split('T').first, // Simple date
-              style: GoogleFonts.spaceGrotesk(
-                fontSize: 10,
-                color: WavyTheme.textDarkSecondary,
+            if (hasUnread)
+              Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: Colors.red,
+                  shape: BoxShape.circle,
+                ),
+              )
+            else
+              Text(
+                _formatSmartDate(chat.updatedAt),
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 10,
+                  color: WavyTheme.textDarkSecondary,
+                ),
               ),
-            ),
           ],
         ),
         subtitle: Text(
-          lastMsg?.text ?? 'No messages yet',
+          lastMsg?.imageUrl != null && lastMsg!.imageUrl!.isNotEmpty
+              ? '📷 Photo'
+              : (lastMsg?.text ?? 'No messages yet'),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: GoogleFonts.spaceGrotesk(
             fontSize: 13,
-            color: WavyTheme.textDarkSecondary,
+            fontWeight: hasUnread ? FontWeight.w700 : FontWeight.w400,
+            color: hasUnread ? Colors.white : WavyTheme.textDarkSecondary,
           ),
         ),
       ),
     );
   }
-}
 
+  bool _isUnread(ChatConversation chat, String? currentUserId) {
+    if (currentUserId == null) return false;
+    final lastMsg = chat.lastMessage;
+    if (lastMsg == null) return false;
+    if (lastMsg.senderId == currentUserId) return false;
+    
+    final lastReadAt = chat.metadata?['last_read_at'];
+    if (lastReadAt is Map && lastReadAt[currentUserId] != null) {
+      return false;
+    }
+    return true;
+  }
+}

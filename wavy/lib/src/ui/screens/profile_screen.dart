@@ -1,7 +1,11 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:image_picker/image_picker.dart';
+
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
 import '../../l10n/app_localizations.dart';
@@ -16,6 +20,7 @@ class ProfileScreen extends ConsumerStatefulWidget {
 
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   bool _forceShowOnboarding = false;
+  bool _isUploadingAvatar = false;
 
   @override
   void initState() {
@@ -25,6 +30,104 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         setState(() => _forceShowOnboarding = true);
       }
     });
+  }
+
+  Future<void> _showAvatarOptions(WavyUser user) async {
+    final hasAvatar = user.avatarUrl != null && user.avatarUrl!.isNotEmpty;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.black,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 24),
+              _AvatarOption(
+                icon: Icons.camera_alt_rounded,
+                label: 'UPLOAD PHOTO',
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _pickAndUploadAvatar(user);
+                },
+              ),
+              if (hasAvatar) ...[
+                const SizedBox(height: 12),
+                _AvatarOption(
+                  icon: Icons.delete_outline_rounded,
+                  label: 'REMOVE PHOTO',
+                  isDestructive: true,
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    _deleteAvatar(user);
+                  },
+                ),
+              ],
+              const SizedBox(height: 12),
+              _AvatarOption(
+                icon: Icons.close_rounded,
+                label: 'CANCEL',
+                onTap: () => Navigator.of(ctx).pop(),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickAndUploadAvatar(WavyUser user) async {
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 80,
+        maxWidth: 512,
+        maxHeight: 512,
+      );
+      if (picked == null || !mounted) return;
+
+      setState(() => _isUploadingAvatar = true);
+      final api = ref.read(apiServiceProvider);
+      final url = await api.uploadAvatar(File(picked.path), user.id);
+      ref.read(authProvider.notifier).setUser(user.copyWith(avatarUrl: url));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Upload failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isUploadingAvatar = false);
+    }
+  }
+
+  Future<void> _deleteAvatar(WavyUser user) async {
+    setState(() => _isUploadingAvatar = true);
+    try {
+      final api = ref.read(apiServiceProvider);
+      await api.deleteAvatar(user.id);
+      ref.read(authProvider.notifier).setUser(user.copyWith(clearAvatarUrl: true));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Remove failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isUploadingAvatar = false);
+    }
   }
 
   @override
@@ -77,6 +180,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       );
     }
 
+    final hasAvatar = user.avatarUrl != null && user.avatarUrl!.isNotEmpty;
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
@@ -86,32 +191,86 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             children: [
               const SizedBox(height: 32),
 
-              // Profile avatar (Minimal White Border)
-              Container(
-                width: 96,
-                height: 96,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 2),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.white.withValues(alpha: 0.1),
-                      blurRadius: 20,
+              // Profile avatar
+              GestureDetector(
+                onTap: () => _showAvatarOptions(user),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Container(
+                      width: 96,
+                      height: 96,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.white.withValues(alpha: 0.1),
+                            blurRadius: 20,
+                          ),
+                        ],
+                      ),
+                      child: ClipOval(
+                        child: hasAvatar
+                            ? CachedNetworkImage(
+                                imageUrl: user.avatarUrl!,
+                                width: 92,
+                                height: 92,
+                                fit: BoxFit.cover,
+                                placeholder: (_, __) => Container(
+                                  color: Colors.white10,
+                                  child: Center(
+                                    child: Text(
+                                      user.name != null && user.name!.isNotEmpty ? user.name![0] : 'W',
+                                      style: GoogleFonts.spaceGrotesk(fontSize: 36, fontWeight: FontWeight.w900, color: Colors.white),
+                                    ),
+                                  ),
+                                ),
+                                errorWidget: (_, __, ___) => Center(
+                                  child: Text(
+                                    user.name != null && user.name!.isNotEmpty ? user.name![0] : 'W',
+                                    style: GoogleFonts.spaceGrotesk(fontSize: 36, fontWeight: FontWeight.w900, color: Colors.white),
+                                  ),
+                                ),
+                              )
+                            : Center(
+                                child: Text(
+                                  user.name != null && user.name!.isNotEmpty ? user.name![0] : 'W',
+                                  style: GoogleFonts.spaceGrotesk(fontSize: 36, fontWeight: FontWeight.w900, color: Colors.white),
+                                ),
+                              ),
+                      ),
+                    ),
+                    if (_isUploadingAvatar)
+                      Container(
+                        width: 96, height: 96,
+                        decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.black54),
+                        child: const Center(child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              GestureDetector(
+                onTap: () => _showAvatarOptions(user),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.camera_alt_rounded, color: Colors.white.withValues(alpha: 0.3), size: 14),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Update photo',
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white.withValues(alpha: 0.3),
+                        letterSpacing: 1,
+                      ),
                     ),
                   ],
                 ),
-                child: Center(
-                  child: Text(
-                    user.name != null && user.name!.isNotEmpty ? user.name![0] : 'W',
-                    style: GoogleFonts.spaceGrotesk(
-                      fontSize: 36,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               Text(
                 (user.name ?? 'Wavy User').toUpperCase(),
                 style: GoogleFonts.spaceGrotesk(
@@ -131,57 +290,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   letterSpacing: 1,
                 ),
               ),
-              const SizedBox(height: 12),
-              if (authState.isVerified)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(2),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.verified_rounded, color: Colors.white, size: 14),
-                      const SizedBox(width: 8),
-                      Text(
-                        tr('profile_verified').toUpperCase(),
-                        style: GoogleFonts.spaceGrotesk(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.white,
-                          letterSpacing: 1,
-                        ).copyWith(fontFamilyFallback: const ['Noto Sans Ethiopic']),
-                      ),
-                    ],
-                  ),
-                ),
-              if (!authState.isVerified)
-                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(2),
-                    border: Border.all(color: Colors.red.withValues(alpha: 0.2)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 14),
-                      const SizedBox(width: 8),
-                      Text(
-                        tr('profile_unverified').toUpperCase(),
-                        style: GoogleFonts.spaceGrotesk(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.redAccent,
-                          letterSpacing: 1,
-                        ).copyWith(fontFamilyFallback: const ['Noto Sans Ethiopic']),
-                      ),
-                    ],
-                  ),
-                ),
               const SizedBox(height: 40),
 
               // Quick stats (Futuristic Minimalism)
@@ -437,6 +545,51 @@ class _ProfileMenuItem extends StatelessWidget {
             trailing ??
                 Icon(Icons.chevron_right_rounded,
                     color: Colors.white.withValues(alpha: 0.2), size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AvatarOption extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool isDestructive;
+
+  const _AvatarOption({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.isDestructive = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isDestructive ? Colors.red : Colors.white;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+        decoration: BoxDecoration(
+          border: Border.all(color: color.withValues(alpha: 0.15)),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(width: 12),
+            Text(
+              label,
+              style: GoogleFonts.spaceGrotesk(
+                color: color,
+                fontWeight: FontWeight.w800,
+                fontSize: 13,
+                letterSpacing: 1,
+              ),
+            ),
           ],
         ),
       ),

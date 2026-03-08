@@ -32,13 +32,20 @@ class ApiService {
 
   Future<void> checkAuthRateLimit() async {
     try {
-      await _functions.httpsCallable('checkAuthRateLimit').call();
+      await _functions
+          .httpsCallable('checkAuthRateLimit',
+              options: HttpsCallableOptions(timeout: const Duration(seconds: 3)))
+          .call()
+          .timeout(const Duration(seconds: 3));
     } on FirebaseFunctionsException catch (e) {
       if (e.code == 'resource-exhausted') {
         throw Exception('TOO_MANY_ATTEMPTS');
       }
-      if (e.code == 'not-found') return; // Fallback: skip if not deployed yet
-      rethrow;
+      // Skip silently for any other Cloud Function error (not-found, unavailable, etc.)
+      return;
+    } catch (_) {
+      // Timeout, network error, App Check failure — skip silently, never block sign-in
+      return;
     }
   }
 
@@ -62,21 +69,7 @@ class ApiService {
   
   Stream<fb.User?> get authStateChanges => _auth.authStateChanges();
 
-  Future<void> verifyPhoneNumber({
-    required String phoneNumber,
-    required Function(String verificationId, int? resendToken) onCodeSent,
-    required Function(fb.FirebaseAuthException e) onVerificationFailed,
-    required Function(fb.PhoneAuthCredential credential) onVerificationCompleted,
-    required Function(String verificationId) onCodeAutoRetrievalTimeout,
-  }) async {
-    await _auth.verifyPhoneNumber(
-      phoneNumber: phoneNumber,
-      verificationCompleted: onVerificationCompleted,
-      verificationFailed: onVerificationFailed,
-      codeSent: onCodeSent,
-      codeAutoRetrievalTimeout: onCodeAutoRetrievalTimeout,
-    );
-  }
+
 
   Future<fb.UserCredential> signInWithEmail(String email, String password) async {
     final cred = await _auth.signInWithEmailAndPassword(email: email, password: password);
@@ -323,6 +316,7 @@ class ApiService {
           phone: userData['phone'],
           market: 'Individual Seller',
           address: 'Addis Ababa',
+          avatarUrl: userData['avatar_url'] as String?,
         );
       }
       return null;
@@ -403,6 +397,29 @@ class ApiService {
     await _db.collection('users').doc(userId).update(data);
   }
 
+  // ─── Avatar (Storage + Firestore) ─────────────────────────
+  Future<String> uploadAvatar(File file, String userId) async {
+    final ref = FirebaseStorage.instance.ref().child('users/$userId/avatar.jpg');
+    final metadata = SettableMetadata(
+      contentType: 'image/jpeg',
+      customMetadata: {'userId': userId},
+    );
+    final snapshot = await ref.putFile(file, metadata);
+    final url = await snapshot.ref.getDownloadURL();
+    await _db.collection('users').doc(userId).update({'avatar_url': url});
+    return url;
+  }
+
+  Future<void> deleteAvatar(String userId) async {
+    try {
+      final ref = FirebaseStorage.instance.ref().child('users/$userId/avatar.jpg');
+      await ref.delete();
+    } catch (_) {
+      // File may not exist — safe to ignore
+    }
+    await _db.collection('users').doc(userId).update({'avatar_url': FieldValue.delete()});
+  }
+
   // ─── Utility ────────────────────────────────────────────
   String generateId() {
     return _db.collection('temp').doc().id;
@@ -440,6 +457,7 @@ class ApiService {
         .collection('conversations')
         .where('participants', arrayContains: userId)
         .orderBy('updated_at', descending: true)
+        .limit(5)
         .snapshots()
         .map((snapshot) => snapshot.docs
             .map((doc) => ChatConversation.fromJson({...doc.data(), 'id': doc.id}))
@@ -487,6 +505,54 @@ class ApiService {
     });
     
     await batch.commit();
+  }
+
+  // ─── Chat Images (Storage) ─────────────────────────────────
+  Future<String> uploadChatImage(File file, String conversationId) async {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final ref = FirebaseStorage.instance
+        .ref()
+        .child('chats/$conversationId/${timestamp}.jpg');
+    final metadata = SettableMetadata(contentType: 'image/jpeg');
+    final snapshot = await ref.putFile(file, metadata);
+    return await snapshot.ref.getDownloadURL();
+  }
+
+  Future<int> getChatImageCount(String conversationId, String userId) async {
+    try {
+      final now = DateTime.now();
+      final startOfDay = DateTime(now.year, now.month, now.day);
+      final snapshot = await _db
+          .collection('conversations')
+          .doc(conversationId)
+          .collection('messages')
+          .where('sender_id', isEqualTo: userId)
+          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+          .get();
+      return snapshot.docs.where((doc) => doc.data()['image_url'] != null).length;
+    } catch (_) {
+      // If index is missing or query fails, allow the upload
+      return 0;
+    }
+  }
+
+  // ─── Chat Reactions ────────────────────────────────────────
+  Future<void> addReaction(String conversationId, String messageId, String userId, String emoji) async {
+    await _db
+        .collection('conversations')
+        .doc(conversationId)
+        .collection('messages')
+        .doc(messageId)
+        .update({'reactions.$userId': emoji});
+  }
+
+  Future<void> removeReaction(String conversationId, String messageId, String userId) async {
+    await _db
+        .collection('conversations')
+        .doc(conversationId)
+        .collection('messages')
+        .doc(messageId)
+        .update({'reactions.$userId': FieldValue.delete()});
   }
 
   Future<String> startOrGetConversation(List<String> participants) async {
@@ -585,5 +651,40 @@ class ApiService {
     }
 
     await batch.commit();
+  }
+
+  // ─── Unread Message Tracking ────────────────────────────────────
+  Future<void> markConversationRead(String conversationId, String userId) async {
+    await _db.collection('conversations').doc(conversationId).update({
+      'last_read_at.$userId': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Stream<int> getUnreadConversationCount(String userId) {
+    return _db
+        .collection('conversations')
+        .where('participants', arrayContains: userId)
+        .snapshots()
+        .map((snapshot) {
+          int unread = 0;
+          for (final doc in snapshot.docs) {
+            final data = doc.data();
+            final lastReadAt = (data['last_read_at'] as Map<String, dynamic>?)?[userId];
+            final updatedAt = data['updated_at'];
+            if (lastReadAt == null && updatedAt != null) {
+              // Never read = unread if there's a message
+              final lastMsg = data['last_message'] as Map<String, dynamic>?;
+              if (lastMsg != null && lastMsg['sender_id'] != userId) unread++;
+            } else if (lastReadAt != null && updatedAt != null) {
+              final readTs = lastReadAt is Timestamp ? lastReadAt : null;
+              final updateTs = updatedAt is Timestamp ? updatedAt : null;
+              if (readTs != null && updateTs != null && updateTs.compareTo(readTs) > 0) {
+                final lastMsg = data['last_message'] as Map<String, dynamic>?;
+                if (lastMsg != null && lastMsg['sender_id'] != userId) unread++;
+              }
+            }
+          }
+          return unread;
+        });
   }
 }

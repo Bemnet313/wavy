@@ -19,8 +19,6 @@ final hiveServiceProvider = Provider<HiveService>((ref) {
 
 class AuthState {
   final String? phone;
-  final String? verificationId;
-  final bool isVerified;
   final bool isLoading;
   final String? error;
   final WavyUser? user;
@@ -28,8 +26,6 @@ class AuthState {
 
   const AuthState({
     this.phone,
-    this.verificationId,
-    this.isVerified = false,
     this.isLoading = false,
     this.error,
     this.user,
@@ -38,8 +34,6 @@ class AuthState {
 
   AuthState copyWith({
     String? phone,
-    String? verificationId,
-    bool? isVerified,
     bool? isLoading,
     String? error,
     WavyUser? user,
@@ -47,8 +41,6 @@ class AuthState {
   }) {
     return AuthState(
       phone: phone ?? this.phone,
-      verificationId: verificationId ?? this.verificationId,
-      isVerified: isVerified ?? this.isVerified,
       isLoading: isLoading ?? this.isLoading,
       error: error,
       user: user ?? this.user,
@@ -76,11 +68,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
   void _initAuthListener() {
     _authSubscription = _api.authStateChanges.listen((fbUser) async {
       if (fbUser != null) {
-        final isPhoneVerified = fbUser.phoneNumber != null || 
-                               fbUser.providerData.any((p) => p.providerId == 'phone');
         state = state.copyWith(
           fbUser: fbUser,
-          isVerified: isPhoneVerified,
           isLoading: true,
         );
         
@@ -166,85 +155,36 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(isLoading: true, error: null);
     try {
       await _api.checkAuthRateLimit();
-      await _api.signInWithGoogle();
+      final result = await _api.signInWithGoogle()
+          .timeout(const Duration(seconds: 15));
+      // User cancelled the Google picker — not an error
+      if (result == null) {
+        state = state.copyWith(isLoading: false);
+        return;
+      }
     } catch (e) {
-      String message = e.toString();
-      if (message.contains('TOO_MANY_ATTEMPTS')) {
+      String message = 'Something went wrong. Please try again.';
+      final errStr = e.toString();
+      if (errStr.contains('TOO_MANY_ATTEMPTS')) {
         message = 'Too many attempts. Please try again in 1 minute.';
+      } else if (errStr.contains('network_error') ||
+          errStr.contains('ApiException: 7') ||
+          errStr.contains('SocketException') ||
+          errStr.contains('Failed host lookup') ||
+          errStr.contains('TimeoutException')) {
+        message = 'No internet connection. Please check your Wi-Fi or data and try again.';
+      } else if (errStr.contains('sign_in_canceled') ||
+          errStr.contains('sign_in_cancelled') ||
+          errStr.contains('ApiException: 12501') ||
+          errStr.contains('ApiException: 10')) {
+        // User cancelled — not an error, just dismiss loading
+        state = state.copyWith(isLoading: false);
+        return;
       }
       state = state.copyWith(isLoading: false, error: message);
     }
   }
 
-  Future<void> sendOtp(String phone) async {
-    state = state.copyWith(isLoading: true, phone: phone, error: null);
-    try {
-      await _api.verifyPhoneNumber(
-        phoneNumber: phone,
-        onCodeSent: (verId, resendToken) {
-          state = state.copyWith(isLoading: false, verificationId: verId);
-        },
-        onVerificationFailed: (e) {
-          state = state.copyWith(isLoading: false, error: e.message);
-        },
-        onVerificationCompleted: (credential) async {
-          // Auto-verification (Android only): link to existing account if signed in.
-          // We never sign in via phone — OTP is for linking only.
-          final fbUser = _ref.read(authProvider).fbUser;
-          if (fbUser != null) {
-            try {
-              await fbUser.linkWithCredential(credential);
-            } catch (_) {
-              // Already linked or other non-critical error — ignore.
-            }
-          }
-        },
-        onCodeAutoRetrievalTimeout: (verId) {
-          state = state.copyWith(verificationId: verId);
-        },
-      );
-    } catch (e) {
-      state = state.copyWith(isLoading: false, error: e.toString());
-    }
-  }
-
-  Future<bool> verifyOtp(String otp) async {
-    if (state.verificationId == null) {
-      state = state.copyWith(error: 'Verification session expired');
-      return false;
-    }
-
-    state = state.copyWith(isLoading: true, error: null);
-    try {
-      final credential = fb.PhoneAuthProvider.credential(
-        verificationId: state.verificationId!,
-        smsCode: otp,
-      );
-      
-      if (state.fbUser != null) {
-        // Link phone credential to the existing signed-in account.
-        // This is the ONLY valid path — OTP is for verification, not sign-in.
-        await state.fbUser!.linkWithCredential(credential);
-      } else {
-        // Guard: user must be signed in before verifying phone.
-        // Direct phone-only sign-in is not permitted by product rules.
-        state = state.copyWith(
-          isLoading: false,
-          error: 'Please sign in with email or Google first.',
-        );
-        return false;
-      }
-      
-      return true;
-    } catch (e) {
-      String message = 'Invalid verification code';
-      if (e.toString().contains('credential-already-in-use')) {
-        message = 'This phone number is already linked to another account';
-      }
-      state = state.copyWith(isLoading: false, error: message);
-      return false;
-    }
-  }
 
   void setUser(WavyUser user) {
     state = state.copyWith(user: user);
@@ -641,6 +581,12 @@ final conversationsProvider = StreamProvider.autoDispose<List<ChatConversation>>
 
 final messagesProvider = StreamProvider.autoDispose.family<List<ChatMessage>, String>((ref, conversationId) {
   return ref.watch(apiServiceProvider).getMessages(conversationId);
+});
+
+final unreadConversationCountProvider = StreamProvider.autoDispose<int>((ref) {
+  final userId = ref.watch(authProvider).fbUser?.uid;
+  if (userId == null) return Stream.value(0);
+  return ref.watch(apiServiceProvider).getUnreadConversationCount(userId);
 });
 
 final sellerListingsProvider = FutureProvider.autoDispose.family<List<WavyItem>, String>((ref, sellerId) {

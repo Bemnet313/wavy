@@ -3,8 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fbAuth;
 import '../ui/screens/splash_screen.dart';
 import '../ui/screens/language_screen.dart';
-import '../ui/screens/phone_screen.dart';
-import '../ui/screens/otp_screen.dart';
+
 import '../ui/screens/sign_in_screen.dart';
 import '../ui/screens/sign_up_screen.dart';
 import '../ui/screens/preferences_screen.dart';
@@ -46,32 +45,6 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/signup',
       builder: (context, state) => const SignUpScreen(),
-    ),
-    GoRoute(
-      path: '/phone',
-      redirect: (context, state) {
-        // Guard: /phone is only for linking to an existing signed-in account.
-        // Unauthenticated deep-links land here — send them back to sign-in.
-        if (fbAuth.FirebaseAuth.instance.currentUser == null) {
-          return '/signin';
-        }
-        return null;
-      },
-      builder: (context, state) => const PhoneScreen(),
-    ),
-    GoRoute(
-      path: '/otp',
-      redirect: (context, state) {
-        // Same guard — /otp must follow a signed-in /phone flow.
-        if (fbAuth.FirebaseAuth.instance.currentUser == null) {
-          return '/signin';
-        }
-        return null;
-      },
-      builder: (context, state) {
-        final phone = state.extra as String? ?? '';
-        return OtpScreen(phone: phone);
-      },
     ),
     GoRoute(
       path: '/preferences',

@@ -389,7 +389,7 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                       _MetaBadge(icon: Icons.radar_rounded, label: item.category),
                       _MetaBadge(
                         icon: Icons.trending_up_rounded,
-                        label: '${item.swipeCount} VIEWS',
+                        label: '${item.swipeCount} Views',
                       ),
                     ],
                   ),
@@ -424,19 +424,16 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                               border: Border.all(color: Colors.white, width: 1.5),
                             ),
                             child: ClipOval(
-                              child: seller.avatarUrl != null
+                              child: seller.avatarUrl != null && (seller.avatarUrl?.isNotEmpty ?? false)
                                   ? CachedNetworkImage(
                                       imageUrl: seller.avatarUrl!,
                                       fit: BoxFit.cover,
                                     )
                                   : Center(
-                                      child: Text(
-                                        seller.name[0],
-                                        style: GoogleFonts.spaceGrotesk(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.w900,
-                                          fontSize: 20,
-                                        ),
+                                      child: Icon(
+                                        Icons.person_rounded,
+                                        size: 26,
+                                        color: Colors.white.withValues(alpha: 0.5),
                                       ),
                                     ),
                             ),
@@ -466,7 +463,7 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  '${seller.rating} RATING · ${seller.totalSales} DROPS',
+                                  '${seller.rating} Rating · ${seller.totalSales} Listings',
                                   style: GoogleFonts.spaceGrotesk(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w700,

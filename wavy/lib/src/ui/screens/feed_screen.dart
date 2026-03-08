@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_card_swiper/flutter_card_swiper.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shimmer/shimmer.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
 import '../../l10n/app_localizations.dart';
@@ -101,7 +102,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
             // Swipe deck
             Expanded(
               child: feedState.isLoading 
-                ? const Center(child: CircularProgressIndicator(color: WavyTheme.neonCyan))
+                ? _buildShimmerFeed()
                 : feedState.error != null
                   ? Center(
                       child: Column(
@@ -279,6 +280,59 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                 ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShimmerFeed() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      child: Shimmer.fromColors(
+        baseColor: Colors.white.withValues(alpha: 0.05),
+        highlightColor: Colors.white.withValues(alpha: 0.1),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(WavyTheme.radiusXl),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Image placeholder
+              Expanded(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(WavyTheme.radiusXl),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Title placeholder
+              Container(
+                height: 16,
+                width: 200,
+                margin: const EdgeInsets.symmetric(horizontal: 16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+              const SizedBox(height: 8),
+              // Price placeholder
+              Container(
+                height: 12,
+                width: 80,
+                margin: const EdgeInsets.symmetric(horizontal: 16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
         ),
       ),
     );

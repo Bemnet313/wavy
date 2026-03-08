@@ -178,6 +178,7 @@ class WavyUser {
   final String id;
   final String phone;
   final String? name;
+  final String? avatarUrl;
   final UserPreferences preferences;
   final String language;
   final List<String> savedItems;
@@ -187,6 +188,7 @@ class WavyUser {
     required this.id,
     required this.phone,
     this.name,
+    this.avatarUrl,
     required this.preferences,
     this.language = 'en',
     this.savedItems = const [],
@@ -198,6 +200,7 @@ class WavyUser {
       id: json['id'] as String,
       phone: json['phone'] as String,
       name: (json['fullName'] ?? json['name']) as String?,
+      avatarUrl: json['avatar_url'] as String?,
       preferences: UserPreferences.fromJson(
           json['preferences'] as Map<String, dynamic>? ?? {
             'gender': json['gender'],
@@ -215,6 +218,7 @@ class WavyUser {
         'id': id,
         'phone': phone,
         'fullName': name,
+        'avatar_url': avatarUrl,
         'role': preferences.role,
         'gender': preferences.gender,
         'age': preferences.age,
@@ -222,13 +226,15 @@ class WavyUser {
         'saved_items': savedItems,
         'fcm_token': fcmToken,
         'createdAt': FieldValue.serverTimestamp(),
-        'preferences': preferences.toJson(), // Keeping this for backward compatibility with existing code
+        'preferences': preferences.toJson(),
       };
 
   WavyUser copyWith({
     String? id,
     String? phone,
     String? name,
+    String? avatarUrl,
+    bool clearAvatarUrl = false,
     UserPreferences? preferences,
     String? language,
     List<String>? savedItems,
@@ -238,6 +244,7 @@ class WavyUser {
       id: id ?? this.id,
       phone: phone ?? this.phone,
       name: name ?? this.name,
+      avatarUrl: clearAvatarUrl ? null : (avatarUrl ?? this.avatarUrl),
       preferences: preferences ?? this.preferences,
       language: language ?? this.language,
       savedItems: savedItems ?? this.savedItems,
@@ -352,6 +359,10 @@ class ChatMessage {
   final String text;
   final String timestamp;
   final String? attachedItemId;
+  final String? imageUrl;
+  final Map<String, String>? reactions; // userId -> emoji
+  final String? replyToId;
+  final String? replyToText;
   /// Firestore document reference used as a cursor for pagination.
   /// Only populated when messages are loaded from Firestore queries.
   final DocumentSnapshot? docRef;
@@ -362,6 +373,10 @@ class ChatMessage {
     required this.text,
     required this.timestamp,
     this.attachedItemId,
+    this.imageUrl,
+    this.reactions,
+    this.replyToId,
+    this.replyToText,
     this.docRef,
   });
 
@@ -374,12 +389,23 @@ class ChatMessage {
       tsStr = ts;
     }
 
+    Map<String, String>? reactions;
+    if (json['reactions'] is Map) {
+      reactions = (json['reactions'] as Map).map(
+        (k, v) => MapEntry(k.toString(), v.toString()),
+      );
+    }
+
     return ChatMessage(
       id: json['id'] as String? ?? '',
       senderId: json['sender_id'] as String,
       text: json['text'] as String,
       timestamp: tsStr,
       attachedItemId: json['attached_item_id'] as String?,
+      imageUrl: json['image_url'] as String?,
+      reactions: reactions,
+      replyToId: json['reply_to_id'] as String?,
+      replyToText: json['reply_to_text'] as String?,
       docRef: doc,
     );
   }
@@ -389,6 +415,10 @@ class ChatMessage {
         'text': text,
         'timestamp': FieldValue.serverTimestamp(),
         if (attachedItemId != null) 'attached_item_id': attachedItemId,
+        if (imageUrl != null) 'image_url': imageUrl,
+        if (reactions != null) 'reactions': reactions,
+        if (replyToId != null) 'reply_to_id': replyToId,
+        if (replyToText != null) 'reply_to_text': replyToText,
       };
 }
 

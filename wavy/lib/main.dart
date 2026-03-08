@@ -65,6 +65,11 @@ void main() async {
     ApiService().saveFcmToken();
   });
 
+  // Override ErrorWidget to prevent red flash in debug mode
+  ErrorWidget.builder = (FlutterErrorDetails details) {
+    return const SizedBox.shrink();
+  };
+
   runApp(const ProviderScope(child: WavyApp()));
 }
 

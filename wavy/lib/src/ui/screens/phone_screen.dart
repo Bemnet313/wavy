@@ -48,7 +48,14 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
     // Listen for verification ID to navigate to OTP screen
     ref.listen(authProvider, (previous, next) {
       if (next.verificationId != null && previous?.verificationId == null) {
-        context.push('/otp', extra: next.phone);
+        // If pushed from sell screen (canPop), pop with the phone number
+        // so the caller can handle OTP navigation themselves.
+        if (GoRouter.of(context).canPop()) {
+          context.pop(next.phone);
+        } else {
+          // Normal onboarding flow — navigate forward to OTP
+          context.push('/otp', extra: next.phone);
+        }
       }
       if (next.error != null) {
         ScaffoldMessenger.of(context).showSnackBar(

@@ -87,41 +87,44 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
                     ),
                     const SizedBox(height: 48),
 
-                    // ─── STEP 1: Buyer / Seller Role ────────
+                    // ─── STEP 1: Full Name ─────────────
                     _SectionHeader(
-                      icon: Icons.person_outline_rounded,
-                      title: tr('pref_primary_focus').toUpperCase(),
+                      icon: Icons.badge_rounded,
+                      title: tr('pref_name_title').toUpperCase(),
                     ),
                     const SizedBox(height: 16),
-                    Column(
-                      children: [
-                        _RoleCard(
-                          role: 'buyer',
-                          icon: Icons.shopping_bag_outlined,
-                          title: tr('pref_buy').toUpperCase(),
-                          subtitle: tr('pref_acquire').toUpperCase(),
-                          isSelected: _role == 'buyer',
-                          onTap: () => setState(() => _role = 'buyer'),
+                    TextField(
+                      controller: _nameController,
+                      onChanged: _onNameChanged,
+                      textCapitalization: TextCapitalization.words,
+                      style: GoogleFonts.spaceGrotesk(
+                        color: Colors.white, 
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                      cursorColor: Colors.white,
+                      decoration: InputDecoration(
+                        hintText: tr('pref_name_hint'),
+                        hintStyle: GoogleFonts.spaceGrotesk(
+                          color: Colors.white.withValues(alpha: 0.1),
+                          fontWeight: FontWeight.w700,
                         ),
-                        const SizedBox(height: 8),
-                        _RoleCard(
-                          role: 'seller',
-                          icon: Icons.attach_money_rounded,
-                          title: tr('pref_sell_role').toUpperCase(),
-                          subtitle: tr('pref_list').toUpperCase(),
-                          isSelected: _role == 'seller',
-                          onTap: () => setState(() => _role = 'seller'),
+                        filled: true,
+                        fillColor: Colors.white.withValues(alpha: 0.02),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(4),
+                          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1), width: 1),
                         ),
-                        const SizedBox(height: 8),
-                        _RoleCard(
-                          role: 'both',
-                          icon: Icons.sync_rounded,
-                          title: tr('pref_both').toUpperCase(),
-                          subtitle: tr('pref_hybrid').toUpperCase(),
-                          isSelected: _role == 'both',
-                          onTap: () => setState(() => _role = 'both'),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(4),
+                          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1), width: 1),
                         ),
-                      ],
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(4),
+                          borderSide: const BorderSide(color: Colors.white, width: 1),
+                        ),
+                      ),
                     ),
                     const SizedBox(height: 40),
 
@@ -150,7 +153,7 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 48),
+                    const SizedBox(height: 40),
 
                     // ─── STEP 3: Age ─────────────
                     _SectionHeader(
@@ -193,44 +196,41 @@ class _PreferencesScreenState extends ConsumerState<PreferencesScreen> {
                     ),
                     const SizedBox(height: 40),
 
-                    // ─── STEP 4: Full Name ─────────────
+                    // ─── STEP 4: Buyer / Seller Role ────────
                     _SectionHeader(
-                      icon: Icons.badge_rounded,
-                      title: tr('pref_name_title').toUpperCase(),
+                      icon: Icons.person_outline_rounded,
+                      title: tr('pref_primary_focus').toUpperCase(),
                     ),
                     const SizedBox(height: 16),
-                    TextField(
-                      controller: _nameController,
-                      onChanged: _onNameChanged,
-                      textCapitalization: TextCapitalization.words,
-                      style: GoogleFonts.spaceGrotesk(
-                        color: Colors.white, 
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                      ),
-                      cursorColor: Colors.white,
-                      decoration: InputDecoration(
-                        hintText: tr('pref_name_hint'),
-                        hintStyle: GoogleFonts.spaceGrotesk(
-                          color: Colors.white.withValues(alpha: 0.1),
-                          fontWeight: FontWeight.w700,
+                    Column(
+                      children: [
+                        _RoleCard(
+                          role: 'buyer',
+                          icon: Icons.shopping_bag_outlined,
+                          title: tr('pref_buy').toUpperCase(),
+                          subtitle: tr('pref_acquire').toUpperCase(),
+                          isSelected: _role == 'buyer',
+                          onTap: () => setState(() => _role = 'buyer'),
                         ),
-                        filled: true,
-                        fillColor: Colors.white.withValues(alpha: 0.02),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(4),
-                          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1), width: 1),
+                        const SizedBox(height: 8),
+                        _RoleCard(
+                          role: 'seller',
+                          icon: Icons.attach_money_rounded,
+                          title: tr('pref_sell_role').toUpperCase(),
+                          subtitle: tr('pref_list').toUpperCase(),
+                          isSelected: _role == 'seller',
+                          onTap: () => setState(() => _role = 'seller'),
                         ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(4),
-                          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1), width: 1),
+                        const SizedBox(height: 8),
+                        _RoleCard(
+                          role: 'both',
+                          icon: Icons.sync_rounded,
+                          title: tr('pref_both').toUpperCase(),
+                          subtitle: tr('pref_hybrid').toUpperCase(),
+                          isSelected: _role == 'both',
+                          onTap: () => setState(() => _role = 'both'),
                         ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(4),
-                          borderSide: const BorderSide(color: Colors.white, width: 1),
-                        ),
-                      ),
+                      ],
                     ),
                     const SizedBox(height: 80),
                   ],

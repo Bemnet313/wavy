@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "934451717707-48kdi3utvqvbc9vqat8hf3ms3fs7lllb.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.wavy.wavy",
+            "certificate_hash": "013f28b4b319f7c6ba700aa4e34e7c5133032c2c"
+          }
+        },
+        {
           "client_id": "934451717707-6t5apn4u6sv7cqutl5cqg31v0h3thm6n.apps.googleusercontent.com",
           "client_type": 3
         }
@@ -29,6 +37,13 @@
             {
               "client_id": "934451717707-6t5apn4u6sv7cqutl5cqg31v0h3thm6n.apps.googleusercontent.com",
               "client_type": 3
+            },
+            {
+              "client_id": "934451717707-r9ldos2h3i7b79g7fkcvvm08ceb5tal2.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.wavy.wavy"
+              }
             }
           ]
         }

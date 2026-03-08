@@ -19,33 +19,21 @@ class LanguageScreen extends ConsumerWidget {
             padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 32),
             child: Column(
               children: [
-                const Spacer(flex: 2),
+                const Spacer(flex: 3),
                 
-                // Top Logo
+                // Logo
                 Image.asset(
                   'assets/wavy_logo_new.png',
-                  height: 48,
+                  height: 120,
                   fit: BoxFit.contain,
                 ),
-                const SizedBox(height: 60),
-                
-                // Title
-                Text(
-                  'INITIALIZE'.toUpperCase(),
-                  style: GoogleFonts.spaceGrotesk(
-                    fontSize: 56,
-                    fontWeight: FontWeight.w900,
-                    color: Colors.white,
-                    letterSpacing: 4,
-                  ),
-                ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 24),
                 
                 // Subtitle
                 Text(
                   (currentLocale == 'am' 
-                    ? 'ብርቅዬ ቪንቴጅ ፋሽንን ከዓለም ዙሪያ ያግኙ።'
-                    : 'DISCOVER RARE VINTAGE FASHION\nCURATED FOR THE FUTURE.').toUpperCase(),
+                    ? 'የተመረጡ ቪንቴጅ ልብሶች።'
+                    : 'Curated vintage for the future.').toUpperCase(),
                   textAlign: TextAlign.center,
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 12,
@@ -100,7 +88,7 @@ class LanguageScreen extends ConsumerWidget {
                       elevation: 0,
                     ),
                     child: Text(
-                      (currentLocale == 'am' ? 'ጀምር' : 'PROCEED').toUpperCase(),
+                      currentLocale == 'am' ? 'እንጀምር 🌊' : "Let's Go 🌊",
                       style: GoogleFonts.spaceGrotesk(
                         fontSize: 16, 
                         fontWeight: FontWeight.w900,
@@ -113,9 +101,9 @@ class LanguageScreen extends ConsumerWidget {
                 
                 // Footer
                 Text(
-                  (currentLocale == 'am'
-                      ? 'በመቀጠልዎ በእኛ የአገልግሎት ውል እና የግላዊነት መመሪያ ይስማማሉ'
-                      : 'BY CONTINUING, YOU AGREE TO OUR TERMS OF SERVICE').toUpperCase(),
+                  currentLocale == 'am'
+                      ? 'በመቀጠልዎ በውሎቻችን እና ስምምነቶቻችን ይስማማሉ።'
+                      : 'By continuing, you agree to our Terms.',
                   textAlign: TextAlign.center,
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 9,

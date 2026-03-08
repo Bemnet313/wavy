@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,10 +19,52 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
   final List<TextEditingController> _controllers =
       List.generate(6, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
-  final bool _isLoading = false;
+  bool _isLoading = false;
+  int _resendCountdown = 60;
+  Timer? _resendTimer;
+  bool _canResend = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _startResendTimer();
+  }
+
+  void _startResendTimer() {
+    setState(() {
+      _resendCountdown = 180;
+      _canResend = false;
+    });
+    _resendTimer?.cancel();
+    _resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        _resendCountdown--;
+        if (_resendCountdown <= 0) {
+          _canResend = true;
+          timer.cancel();
+        }
+      });
+    });
+  }
+
+  Future<void> _resendCode() async {
+    if (!_canResend) return;
+    _startResendTimer();
+    await ref.read(authProvider.notifier).sendOtp(widget.phone);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Verification code resent')),
+      );
+    }
+  }
 
   @override
   void dispose() {
+    _resendTimer?.cancel();
     for (final c in _controllers) {
       c.dispose();
     }
@@ -35,14 +78,19 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
   bool get _isComplete => _otp.length == 6;
 
   Future<void> _verify() async {
-    if (!_isComplete) return;
-    final success = await ref.read(authProvider.notifier).verifyOtp(_otp);
-    if (success && mounted) {
-      if (GoRouter.of(context).canPop()) {
-        context.pop(true);
-      } else {
-        context.go('/preferences');
+    if (!_isComplete || _isLoading) return;
+    setState(() => _isLoading = true);
+    try {
+      final success = await ref.read(authProvider.notifier).verifyOtp(_otp);
+      if (success && mounted) {
+        if (GoRouter.of(context).canPop()) {
+          context.pop(true);
+        } else {
+          context.go('/preferences');
+        }
       }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -174,6 +222,29 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
                               ).copyWith(fontFamilyFallback: const ['Noto Sans Ethiopic']),
                             ),
                           ]),
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Resend button
+                        Center(
+                          child: GestureDetector(
+                            onTap: _canResend ? _resendCode : null,
+                            child: Text(
+                              _canResend
+                                  ? (locale == 'am' ? 'ኮድ ዳግም ላክ' : 'RESEND CODE')
+                                  : (locale == 'am'
+                                      ? 'ዳግም ማስላት ይቻላል ከ $_resendCountdown ሰ'
+                                      : 'RESEND IN ${_resendCountdown}s'),
+                              style: GoogleFonts.spaceGrotesk(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                color: _canResend
+                                    ? Colors.white
+                                    : Colors.white.withValues(alpha: 0.2),
+                                letterSpacing: 1,
+                              ).copyWith(fontFamilyFallback: const ['Noto Sans Ethiopic']),
+                            ),
+                          ),
                         ),
 
                         const Spacer(),

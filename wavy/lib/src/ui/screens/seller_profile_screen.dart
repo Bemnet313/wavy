@@ -148,30 +148,42 @@ class _SellerProfileScreenState extends ConsumerState<SellerProfileScreen> {
                 child: Column(
                   children: [
                     // Avatar
-                    Container(
-                      width: 90,
-                      height: 90,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 2),
-                      ),
-                      child: ClipOval(
-                        child: seller.avatarUrl != null && (seller.avatarUrl?.isNotEmpty ?? false)
-                            ? CachedNetworkImage(
-                                imageUrl: seller.avatarUrl!,
-                                fit: BoxFit.cover,
-                                placeholder: (_, __) => const CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : Center(
-                                child: Text(
-                                  seller.name.isNotEmpty ? seller.name[0] : '?',
-                                  style: GoogleFonts.spaceGrotesk(
-                                    fontSize: 32,
-                                    fontWeight: FontWeight.w900,
-                                    color: Colors.white,
+                    GestureDetector(
+                      onTap: () {
+                        if (seller.avatarUrl != null && (seller.avatarUrl?.isNotEmpty ?? false)) {
+                          Navigator.push(
+                            context,
+                            PageRouteBuilder(
+                              opaque: false,
+                              pageBuilder: (context, _, __) => _FullScreenAvatar(imageUrl: seller.avatarUrl!),
+                              transitionsBuilder: (context, animation, _, child) =>
+                                  FadeTransition(opacity: animation, child: child),
+                            ),
+                          );
+                        }
+                      },
+                      child: Container(
+                        width: 90,
+                        height: 90,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
+                        ),
+                        child: ClipOval(
+                          child: seller.avatarUrl != null && (seller.avatarUrl?.isNotEmpty ?? false)
+                              ? CachedNetworkImage(
+                                  imageUrl: seller.avatarUrl!,
+                                  fit: BoxFit.cover,
+                                  placeholder: (_, __) => const CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : Center(
+                                  child: Icon(
+                                    Icons.person_rounded,
+                                    size: 40,
+                                    color: Colors.white.withValues(alpha: 0.5),
                                   ),
                                 ),
-                              ),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -531,6 +543,35 @@ class _ActionButton extends StatelessWidget {
               ).copyWith(fontFamilyFallback: const ['Noto Sans Ethiopic']),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FullScreenAvatar extends StatelessWidget {
+  final String imageUrl;
+  const _FullScreenAvatar({required this.imageUrl});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black.withValues(alpha: 0.95),
+      body: GestureDetector(
+        onTap: () => Navigator.pop(context),
+        child: Center(
+          child: Hero(
+            tag: 'avatar-$imageUrl',
+            child: CachedNetworkImage(
+              imageUrl: imageUrl,
+              fit: BoxFit.contain,
+              errorWidget: (_, __, ___) => const Icon(
+                Icons.broken_image_rounded,
+                color: Colors.white24,
+                size: 64,
+              ),
+            ),
+          ),
         ),
       ),
     );
