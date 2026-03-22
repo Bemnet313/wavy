@@ -1,0 +1,14 @@
+# Require @Bemnet313 review for all changes to critical paths
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything
+* @Bemnet313
+
+# Firebase config & security rules — always require owner review
+firebase.json @Bemnet313
+wavy/firestore.rules @Bemnet313
+wavy/storage.rules @Bemnet313
+functions/ @Bemnet313
+
+# CI/CD workflows
+.github/ @Bemnet313

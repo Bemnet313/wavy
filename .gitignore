@@ -39,6 +39,12 @@ __pycache__/
 *.keystore
 *.jks
 
+# === Firebase Config (platform-specific, share separately) ===
+**/google-services.json
+**/GoogleService-Info.plist
+**/firebase_options.dart
+firebase-debug.log
+
 # === Temp debug artifacts ===
 device_log.txt
 device_screenshot*.png
