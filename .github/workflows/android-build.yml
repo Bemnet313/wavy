@@ -29,6 +29,12 @@ jobs:
       run: flutter pub get
       working-directory: wavy
 
+    - name: Inject Secret Configs
+      run: |
+        echo "API_URL=http://localhost:3000" > wavy/.env
+        echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 --decode > wavy/android/app/google-services.json
+        echo "${{ secrets.FIREBASE_OPTIONS_DART_BASE64 }}" | base64 --decode > wavy/lib/firebase_options.dart
+
     - name: Decode Keystore
       run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > wavy/android/app/wavy-keystore.jks
 
