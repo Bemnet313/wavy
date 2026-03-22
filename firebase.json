@@ -1,7 +1,7 @@
 {
     "firestore": {
-        "rules": "firebase.rules",
-        "indexes": "firestore.indexes.json"
+        "rules": "wavy/firestore.rules",
+        "indexes": "wavy/firestore.indexes.json"
     },
     "functions": [
         {
@@ -16,6 +16,6 @@
         }
     ],
     "storage": {
-        "rules": "storage.rules"
+        "rules": "wavy/storage.rules"
     }
 }

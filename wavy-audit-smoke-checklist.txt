@@ -1,0 +1,12 @@
+Wavy App - Manual Smoke Testing Checklist
+-----------------------------------------
+1. [ ] Verify user can create a new account using Email & Password and complete the preference onboarding (Name, Age, Gender, Role).
+2. [ ] Verify user can log in with an existing account via Email/Password or Google Sign-In.
+3. [ ] Verify user can view the item feed and swipe smoothly (right/left) without crashing.
+4. [ ] Verify user can save an item from the feed and confirm it correctly appears in the Saved tab.
+5. [ ] Verify user can initiate an upload for a new listing and MUST successfully perform Phone OTP verification before the listing is published.
+6. [ ] Verify user can change their associated phone number during the publish OTP flow if needed.
+7. [ ] Verify user can tap to reveal a seller's phone number on an active listing.
+8. [ ] Verify user can successfully send a message to another user and receive a real-time response.
+9. [ ] Verify push notifications are correctly received when the app is in background and a new message arrives.
+10. [ ] Verify a seller can edit an existing listing's details or delete the listing entirely, and it updates across the app.
