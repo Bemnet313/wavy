@@ -512,7 +512,7 @@ class ApiService {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final ref = FirebaseStorage.instance
         .ref()
-        .child('chats/$conversationId/${timestamp}.jpg');
+        .child('chats/$conversationId/$timestamp.jpg');
     final metadata = SettableMetadata(contentType: 'image/jpeg');
     final snapshot = await ref.putFile(file, metadata);
     return await snapshot.ref.getDownloadURL();

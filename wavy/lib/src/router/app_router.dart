@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:firebase_auth/firebase_auth.dart' as fbAuth;
 import '../ui/screens/splash_screen.dart';
 import '../ui/screens/language_screen.dart';
 
