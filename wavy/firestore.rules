@@ -49,8 +49,8 @@ service cloud.firestore {
                     
       allow update: if isAuthenticated() && 
                     (isOwner(resource.data.seller_id) || 
-                    request.resource.data.diff(resource.data).affectedKeys()
-                    .hasOnly(['swipe_count', 'interest_count', 'status', 'thumbnail_url']));
+                    (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['swipe_count']) &&
+                     request.resource.data.swipe_count == resource.data.swipe_count + 1));
                     
       allow delete: if isOwner(resource.data.seller_id);
     }
